@@ -107,7 +107,7 @@ If delivery fails during signup, the account is still created. The profile's res
 
 - Set `NODE_ENV=production`, `APP_ORIGIN=https://your-frontend.example`, and `CLIENT_ORIGIN=https://your-frontend.example`.
 - Use HTTPS. Production cookies are Secure and HttpOnly. Set `SESSION_COOKIE_SAME_SITE=none` for separate Vercel/Render domains; use `lax` for same-site custom domains. Browsers that block third-party cookies may still require same-site custom domains or a reverse proxy. See [deployment.md](deployment.md).
-- Set `VITE_SERVER_URL` to the public API origin before building the client. Cookies are sent with API and Socket.IO requests.
+- For the deployed Vercel proxy, set `VITE_SERVER_URL=https://bluffx.vercel.app` so API and game requests stay on the frontend origin. Keep the auth and Socket.IO proxy rules in `client/vercel.json`; see [deployment.md](deployment.md).
 - Set `DATABASE_URL` to persistent PostgreSQL storage. Accounts, password hashes, verification/reset tokens, sessions, profiles, and tutorial preferences live there.
 - Keep one backend instance for now: active game rooms and timers remain in memory and end on restart. Multiple instances also need shared room state and socket coordination.
 - Production does not fall back to the local email outbox when no mail provider is configured.

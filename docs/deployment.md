@@ -2,7 +2,7 @@
 
 The GitHub repository is https://github.com/Ayush22042004/BluffX. Account data is already in Neon PostgreSQL. Keep a single backend instance: live rooms and turn timers are in memory.
 
-The frontend is deployed at **https://bluffx.vercel.app** and the backend at **https://bluffx.onrender.com**. Vercel's production `VITE_SERVER_URL` is set to that backend URL. The backend health endpoint, browser login, session persistence after reload, authenticated AI table creation, and card dealing were verified against the live deployments on 2026-11-12. The temporary verification account was removed and no email was sent. Resend is reported as the configured provider, but actual mail delivery and Google OAuth consent were not exercised by this check.
+The frontend is deployed at **https://bluffx.vercel.app** and the backend at **https://bluffx.onrender.com**. Vercel's production `VITE_SERVER_URL` is **https://bluffx.vercel.app**: authentication and Socket.IO requests use same-origin reverse-proxy routes to Render. This lets browsers keep the HttpOnly session cookie even when third-party cookies are blocked. Production sockets use HTTP polling through the proxy; local development can upgrade to WebSockets. The backend health endpoint, browser login, session persistence after reload, authenticated AI table creation, and card dealing were verified against the live deployments on 2026-11-12. The temporary verification account was removed and no email was sent. Resend is configured, but actual mail delivery and Google OAuth consent were not exercised by this check.
 
 Use `https://bluffx.vercel.app` for Render's `APP_ORIGIN` and `CLIENT_ORIGIN`, and add it to Google's authorized JavaScript origins.
 
@@ -43,13 +43,13 @@ Import the same repository into Vercel:
 - Install: `npm ci`
 - Build: `npm run build`
 - Output: `dist`
-- Public environment variable: `VITE_SERVER_URL=https://bluffx.onrender.com`
+- Public environment variable: `VITE_SERVER_URL=https://bluffx.vercel.app`
 
-The committed `client/vercel.json` supplies these build settings and SPA fallback. `VITE_SERVER_URL` is baked into the client: redeploy after changing it. No database, mail, or OAuth client secret belongs on Vercel's client build.
+The committed `client/vercel.json` supplies these build settings, authentication/Socket.IO proxy routes to Render, and SPA fallback. Keep the frontend URL as `VITE_SERVER_URL` so cookies are first-party; do not change it back to the Render origin. The exact Socket.IO endpoint and trailing-slash setting must match the proxy rules. `VITE_SERVER_URL` is baked into the client: redeploy after changing it. No database, mail, or OAuth client secret belongs on Vercel's client build.
 
 Once Vercel assigns the frontend URL, update `APP_ORIGIN` and `CLIENT_ORIGIN` on Render and redeploy the backend. Keep that stable production URL for account emails and CORS; arbitrary preview domains are not automatically trusted.
 
-Production cookies are Secure and HttpOnly. `SameSite=None` permits cross-site cookies, but browsers that block third-party cookies can still prevent login persistence between `vercel.app` and `onrender.com`. Same-site custom domains such as `app.yourdomain.com` and `api.yourdomain.com` avoid that restriction; use `SESSION_COOKIE_SAME_SITE=lax` with them.
+Production cookies are Secure and HttpOnly. The same-origin proxy avoids reliance on third-party cookies. `SESSION_COOKIE_SAME_SITE=none` is currently supported; `lax` also works with the proxy if changed on Render. If bypassing the proxy to call a different site directly, third-party cookie restrictions apply again.
 
 ## Google and Resend
 
@@ -65,6 +65,8 @@ Verify your owned sending domain's DNS records in Resend, set `MAIL_FROM` to an 
 4. Create an AI table and a two-browser multiplayer room; confirm identity and turns work.
 5. Request verification and password-reset emails and confirm their links point to the Vercel frontend.
 6. Sign in with Google after authorizing the frontend origin.
+
+Run `npm --prefix server run check:deployment` to verify real deployed login, session restoration, and game creation with Chrome's third-party cookies explicitly blocked. This command creates a temporary verified account directly in the configured Neon database, sends no email, and removes its account and sessions afterward. It requires development dependencies installed in `client` and the deployed app's Neon credentials loaded locally.
 
 Do not commit `.env` files, Neon links, mail previews, SQLite backups, or deployment credentials. `.gitignore` excludes these paths.
 

@@ -9,6 +9,7 @@
     "start": "node src/index.js",
     "start:test": "node --require ./test/postgres-fixture.cjs src/index.js",
     "check:neon": "node scripts/check-neon.js",
+    "check:deployment": "node scripts/check-deployment.js",
     "db:migrate-sqlite": "node scripts/migrate-sqlite.js"
   },
   "dependencies": {
