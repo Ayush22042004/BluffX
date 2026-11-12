@@ -72,8 +72,8 @@ export default function App() {
     [privacy, setPrivacy] = useState("Public"),
     [code, setCode] = useState(""),
     [busy, setBusy] = useState(false);
-  const completed = useRef(new Set()),
-    countedCalls = useRef(new Set()),
+  const completed = useRef(new Set(read(`${statsKey}:completed`, []))),
+    countedCalls = useRef(new Set(read(`${statsKey}:calls`, []))),
     prevPhase = useRef(null),
     chatRef = useRef(null);
   const changeStats = (patch) =>
@@ -88,6 +88,7 @@ export default function App() {
     const timer = setInterval(() => setNow(Date.now()), 500);
     const onState = (s) => {
       setBusy(false);
+      setError("");
       setState(s);
       setSelected((ids) => ids.filter((id) => s.hand.some((c) => c.id === id)));
       if (s.phase === "playing" && prevPhase.current === "finished") {
@@ -99,6 +100,10 @@ export default function App() {
         const key = `${s.roomId}:${s.matchId}:${s.lastResult.roundNumber}`;
         if (!countedCalls.current.has(key)) {
           countedCalls.current.add(key);
+          localStorage.setItem(
+            `${statsKey}:calls`,
+            JSON.stringify([...countedCalls.current].slice(-200)),
+          );
           changeStats({ calls: 1, correct: s.lastResult.foundFake ? 1 : 0 });
         }
       }
@@ -106,6 +111,10 @@ export default function App() {
         const key = `${s.roomId}:${s.matchId}`;
         if (!completed.current.has(key)) {
           completed.current.add(key);
+          localStorage.setItem(
+            `${statsKey}:completed`,
+            JSON.stringify([...completed.current].slice(-200)),
+          );
           changeStats({ games: 1, wins: s.winnerId === s.you.id ? 1 : 0 });
         }
       }
@@ -128,13 +137,9 @@ export default function App() {
     const onConnect = () => setConnected(true);
     const onDisconnect = () => {
       setConnected(false);
-      setState(null);
       setBusy(false);
-      setSelected([]);
-      setHistory([]);
-      setMessages([]);
       setModal(null);
-      setError("Connection lost. You can join a new table after reconnecting.");
+      setError("Connection lost. Reconnecting to your saved seat...");
     };
     const onLeft = () => {
       setState(null);
@@ -144,6 +149,15 @@ export default function App() {
       setSelected([]);
       setModal(null);
     };
+    const onRemoved = (p) => {
+      onLeft();
+      setError(p.message || "Your previous seat expired.");
+    };
+    const onReplaced = (p) => {
+      onLeft();
+      socket.disconnect();
+      setError(p.message);
+    };
     const onChat = (m) => setMessages((list) => [...list, m].slice(-100));
     socket.on("room_state", onState);
     socket.on("bluff_result", onResult);
@@ -152,6 +166,9 @@ export default function App() {
     socket.on("disconnect", onDisconnect);
     socket.on("room_left", onLeft);
     socket.on("chat_message", onChat);
+    socket.on("room_removed", onRemoved);
+    socket.on("seat_expired", onRemoved);
+    socket.on("seat_replaced", onReplaced);
     return () => {
       clearInterval(timer);
       socket.off("room_state", onState);
@@ -161,6 +178,9 @@ export default function App() {
       socket.off("disconnect", onDisconnect);
       socket.off("room_left", onLeft);
       socket.off("chat_message", onChat);
+      socket.off("room_removed", onRemoved);
+      socket.off("seat_expired", onRemoved);
+      socket.off("seat_replaced", onReplaced);
     };
   }, []);
   useEffect(() => {
@@ -196,6 +216,21 @@ export default function App() {
     }, 8000);
     return () => clearTimeout(t);
   }, [busy]);
+  useEffect(() => {
+    if (!state?.presenceEvents?.length) return;
+    setHistory((history) => {
+      const seen = new Set();
+      return [
+        ...state.presenceEvents
+          .slice()
+          .reverse()
+          .map((e) => ({ id: e.id, text: e.message, tone: "gold" })),
+        ...history,
+      ]
+        .filter((e) => !seen.has(e.id) && seen.add(e.id))
+        .slice(0, 60);
+    });
+  }, [state?.presenceEvents?.at(-1)?.id]);
   const me = state?.you || {
       ...profile,
       id: "me",
@@ -203,7 +238,8 @@ export default function App() {
     },
     players = state?.players || [],
     playing = state?.phase === "playing",
-    mine = playing && state.currentTurnId === me.id,
+    mine =
+      playing && connected && !state.pause && state.currentTurnId === me.id,
     claim = state?.lastMove,
     count = (p) => state?.playerHandsCount[p.id] || 0,
     host = state?.hostId === me.id;
@@ -545,6 +581,13 @@ export default function App() {
                 )}
                 {p.isBot ? " · AI" : ""}
               </small>
+              {!p.isBot && p.connected === false && (
+                <small className="presence-label">
+                  {p.aiTakeover
+                    ? `AI playing - ${p.aiRoundsRemaining} rounds left`
+                    : "Offline - reconnecting"}
+                </small>
+              )}
             </div>
             {playing && p.id === state.currentTurnId && (
               <span className="turn-tag">Turn</span>
@@ -634,6 +677,27 @@ export default function App() {
           <span>⌄</span>
         </button>
       </header>
+      {state &&
+        (!connected || state.pause || players.some((p) => p.aiTakeover)) && (
+          <div className="presence-banner" role="status">
+            {!connected
+              ? "You are offline. Reconnecting to your seat..."
+              : state.pause
+                ? `Clock paused - ${players
+                    .filter((p) => p.graceUntil)
+                    .map((p) => p.name)
+                    .join(
+                      ", ",
+                    )} offline - ${Math.max(0, Math.ceil((state.pause.until - now) / 1000))}s to return`
+                : players
+                    .filter((p) => p.aiTakeover)
+                    .map(
+                      (p) =>
+                        `AI is playing for ${p.name} - ${p.aiRoundsRemaining} rounds remaining`,
+                    )
+                    .join(" | ")}
+          </div>
+        )}
       {!state ? (
         <main className={`menu-layout screen-${screen}`}>
           {sidebar}
@@ -976,11 +1040,15 @@ export default function App() {
                 </span>
                 <span>
                   <Icon name="clock" size={16} />
-                  {playing
-                    ? `${Math.max(0, Math.ceil((state.turnEndsAt - now) / 1000))}s`
-                    : state.phase === "lobby"
-                      ? "Waiting"
-                      : "Complete"}
+                  {!connected
+                    ? "Offline"
+                    : state.pause
+                      ? `Paused ${Math.max(0, Math.ceil((state.pause.until - now) / 1000))}s`
+                      : playing
+                        ? `${Math.max(0, Math.ceil((state.turnEndsAt - now) / 1000))}s`
+                        : state.phase === "lobby"
+                          ? "Waiting"
+                          : "Complete"}
                 </span>
               </div>
               <div className="felt-mark">
@@ -997,6 +1065,13 @@ export default function App() {
                     <Avatar player={p} />
                     <div>
                       <strong>{p.name}</strong>
+                      {!p.isBot && p.connected === false && (
+                        <small className="presence-label">
+                          {p.aiTakeover
+                            ? `AI playing ? ${p.aiRoundsRemaining} rounds`
+                            : "Offline ? reconnecting"}
+                        </small>
+                      )}
                       <small>
                         {state.phase === "lobby"
                           ? p.ready
@@ -1037,6 +1112,7 @@ export default function App() {
                   <RoundResult
                     result={state.lastResult}
                     host={host}
+                    paused={!!state.pause || !connected}
                     onContinue={() => emit("continue_round")}
                   />
                 ) : (
@@ -1205,6 +1281,8 @@ export default function App() {
                   <button
                     className="bluff-action"
                     disabled={
+                      !connected ||
+                      !!state.pause ||
                       !claim ||
                       claim.playerId === me.id ||
                       claim.passedBy.includes(me.id)

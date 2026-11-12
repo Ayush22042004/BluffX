@@ -2,6 +2,7 @@ import React, { Component, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AuthProvider } from "./auth";
+import ReleaseBanner from "./ReleaseBanner";
 import "./index.css";
 
 class RootErrorBoundary extends Component {
@@ -54,6 +55,7 @@ class RootErrorBoundary extends Component {
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
+    <ReleaseBanner />
     <RootErrorBoundary>
       <AuthProvider>
         <App />

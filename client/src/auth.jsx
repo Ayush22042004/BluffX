@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Icon, Mask, Fan } from "./components";
-import { socket } from "./lib/socket";
+import { socket, clearSeatResume, hasGuestSeat } from "./lib/socket";
 const BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null),
     [loading, setLoading] = useState(true),
     [guest, setGuest] = useState(
-      () => sessionStorage.getItem("bluffx:guest") === "true",
+      () => sessionStorage.getItem("bluffx:guest") === "true" || hasGuestSeat(),
     ),
     [config, setConfig] = useState(null),
     [error, setError] = useState("");
@@ -95,6 +95,7 @@ export function AuthProvider({ children }) {
   };
   const logout = async () => {
     await authRequest("logout", {});
+    clearSeatResume();
     setUser(null);
     setGuest(false);
     sessionStorage.removeItem("bluffx:guest");
@@ -105,6 +106,7 @@ export function AuthProvider({ children }) {
       <div className="auth-loading">
         <Mask size={60} />
         <strong>Setting your place at the table…</strong>
+        <p>Beta game · Your connection and saved seat are being checked.</p>
       </div>
     );
   if (flow || (!user && !guest))

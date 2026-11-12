@@ -195,7 +195,7 @@ test("final claim ends the match, records the win, and supports rematch", async 
       page.getByRole("heading", { name: "Pre-Game Lobby" }),
     ).toBeVisible();
     const code = (await page.locator(".room-code").innerText()).trim();
-    guest = io("http://localhost:4000", { transports: ["websocket"] });
+    guest = io("http://localhost:4020", { transports: ["websocket"] });
     await waitFor(guest, "connect");
     let pending = waitFor(guest, "room_state");
     guest.emit("join_room", { roomId: code, name: "Guest", avatar: 1 });

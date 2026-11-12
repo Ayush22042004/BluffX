@@ -90,7 +90,7 @@ export function Avatar({ player, large = false, onClick }) {
       aria-label={onClick ? "Open my profile" : undefined}
       className={`avatar portrait-${player?.avatar || 0} ${large ? "large" : ""}`}
     >
-      <i />
+      <i className={player?.connected === false ? "offline-dot" : ""} />
     </span>
   );
 }
@@ -327,7 +327,7 @@ export function Challenge({ claim, onConfirm }) {
     </>
   );
 }
-export function RoundResult({ result, host, onContinue }) {
+export function RoundResult({ result, host, onContinue, paused = false }) {
   return (
     <div className="round-result">
       <div className="overline">REVEAL & ROUND RESULT</div>
@@ -360,7 +360,7 @@ export function RoundResult({ result, host, onContinue }) {
         </span>
       </div>
       {host ? (
-        <button className="primary" onClick={onContinue}>
+        <button className="primary" onClick={onContinue} disabled={paused}>
           <Icon name="skip" />
           Next Round
         </button>
@@ -387,9 +387,11 @@ export function Results({ state, me, onRematch, onHome }) {
         <p className="overline">GAME COMPLETE · FINAL RESULT</p>
         <h1>{won ? `You (${me.name}) Win!` : `${winner?.name} Wins!`}</h1>
         <p>
-          {won
-            ? "You kept your cool. You fooled the table."
-            : "A great game. An even better rematch awaits."}
+          {state.winReason === "last_player"
+            ? "The other player left the game. You are the last remaining player."
+            : won
+              ? "You kept your cool. You fooled the table."
+              : "A great game. An even better rematch awaits."}
         </p>
       </div>
       <section className="panel result-summary">

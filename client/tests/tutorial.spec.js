@@ -113,7 +113,7 @@ test("new account is offered a tutorial, plays through it, and retains completio
     .getByRole("button", { name: "Finish Tutorial", exact: true })
     .click();
   await expect(tutorial).toHaveCount(0);
-  const account = await page.request.get("http://localhost:4000/auth/session");
+  const account = await page.request.get("http://localhost:4020/auth/session");
   const accountUser = (await account.json()).user;
   expect(accountUser.tutorialStatus).toBe("completed");
   await page.reload();

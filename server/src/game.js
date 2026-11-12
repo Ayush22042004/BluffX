@@ -35,6 +35,7 @@ function finishGame(r, id) {
   r.winnerId = id;
   r.pendingWinnerId = null;
   r.turnEndsAt = null;
+  r.pause = null;
   clearTimeout(r.botTimer);
 }
 function startGame(r, deck) {
@@ -52,10 +53,16 @@ function startGame(r, deck) {
     winnerId: null,
     currentTurnIndex: 0,
     lastResult: null,
+    completedRounds: 0,
+    winReason: null,
+    pause: null,
+    presenceEvents: [],
   });
   deadline(r);
 }
 function assertPlaying(r, id, turn = false) {
+  if (r.pause)
+    throw Error("The clock is paused while an offline player reconnects.");
   if (r.phase !== "playing") throw Error("This round is not accepting moves.");
   if (!r.players.some((p) => p.id === id))
     throw Error("You are not at this table.");
@@ -106,6 +113,7 @@ function applyPlay(r, id, ids, rank) {
   return null;
 }
 function closeRound(r, result, starter) {
+  r.completedRounds = (r.completedRounds || 0) + 1;
   r.lastResult = { ...result, roundNumber: r.roundNumber };
   r.lastMove = null;
   r.roundRank = null;
@@ -209,14 +217,32 @@ function applyChallenge(r, id, indexes) {
 }
 function publicState(r, id) {
   const claim = r.lastMove;
+  const players = r.players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    avatar: p.avatar,
+    ready: p.ready,
+    isBot: p.isBot,
+    connected: p.connected !== false,
+    aiTakeover: !!p.aiTakeover,
+    graceUntil: p.graceUntil || null,
+    aiRoundsRemaining: p.aiTakeover
+      ? Math.max(0, 3 - ((r.completedRounds || 0) - p.takeoverRound))
+      : null,
+  }));
   return {
     matchId: r.matchId,
     roomId: r.id,
     roomName: r.roomName,
     phase: r.phase,
     hostId: r.hostId,
-    players: r.players,
-    you: r.players.find((p) => p.id === id),
+    players,
+    you: players.find((p) => p.id === id),
+    pause: r.pause
+      ? { until: r.pause.until, remainingMs: r.pause.remainingMs }
+      : null,
+    presenceEvents: r.presenceEvents || [],
+    winReason: r.winReason || null,
     hand: r.hands[id] || [],
     playerHandsCount: Object.fromEntries(
       r.players.map((p) => [p.id, r.hands[p.id]?.length || 0]),

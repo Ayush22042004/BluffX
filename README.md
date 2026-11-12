@@ -101,7 +101,7 @@ npm run build
 npm run test:e2e
 ```
 
-The browser tests use Google Chrome through Playwright. They reuse local servers on ports 4000 and 5173 or start them automatically. They cover profile persistence, AI setup, mobile layout, card play, a caught bluff, a final claim, the winner screen, and rematch. Server tests cover game invariants and the live Socket.IO lifecycle.
+The browser tests use Google Chrome through Playwright and isolated local servers on ports 4020 and 5180. They cover profile persistence, AI setup, mobile layout, card play, a caught bluff, a final claim, the winner screen, rematch, tab recovery and offline/AI notices. Server tests cover game invariants, pause/AI/removal rules, and the live Socket.IO lifecycle.
 
 Artwork assets and generation prompts are documented in [docs/artwork.md](docs/artwork.md).
 
@@ -122,3 +122,7 @@ Use `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, and a verified `MAIL_FROM` sender 
 ## Deployment
 
 Deploy the frontend to Vercel and the backend to Render using [docs/deployment.md](docs/deployment.md). Account data is stored in Neon PostgreSQL.
+
+## Beta 0.2.0-beta.1
+
+The beta/version label appears before loading and at the top of the app. Offline players get a ten-second reconnect pause, then AI can control their seat for three completed rounds before removal. Returning restores the same seat and current hand. See [the offline rules and remaining game-logic priorities](docs/gameplay-beta.md).

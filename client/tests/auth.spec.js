@@ -23,9 +23,15 @@ test("email signup, verification, profile persistence, signout, and login", asyn
   await expect(
     page.getByRole("heading", { name: "Welcome back.", exact: true }),
   ).toBeVisible();
-  const config=await (await page.request.get("http://localhost:4000/auth/config")).json();
-  if(config.googleClientId) await expect(page.locator(".google-widget")).toBeVisible();
-  else await expect(page.getByRole("button",{name:/Continue with Google/})).toBeDisabled();
+  const config = await (
+    await page.request.get("http://localhost:4020/auth/config")
+  ).json();
+  if (config.googleClientId)
+    await expect(page.locator(".google-widget")).toBeVisible();
+  else
+    await expect(
+      page.getByRole("button", { name: /Continue with Google/ }),
+    ).toBeDisabled();
   await page.screenshot({
     path: "tests/artifacts/login-desktop.png",
     fullPage: true,
