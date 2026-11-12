@@ -2,6 +2,8 @@
 
 The GitHub repository is https://github.com/Ayush22042004/BluffX. Account data is already in Neon PostgreSQL. Keep a single backend instance: live rooms and turn timers are in memory.
 
+The frontend is deployed at **https://bluffx.vercel.app**. Its login page and favicon were verified publicly with HTTP 200. Use this exact origin for Render's `APP_ORIGIN` and `CLIENT_ORIGIN`, and add it to Google's authorized JavaScript origins. Backend connection and production email delivery still require the Render environment settings below.
+
 ## Render backend
 
 Create a web service from this repository, or use its root `render.yaml` Blueprint. Settings:
