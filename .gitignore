@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+.vercel/
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Browser validation artifacts
+test-results/
+playwright-report/
+client/tests/artifacts/
+tests/artifacts/
+
+# Local accounts, sessions and development email previews
+server/.data/
+.neon

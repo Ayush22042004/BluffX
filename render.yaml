@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: bluffx-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.11.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: APP_ORIGIN
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: SESSION_COOKIE_SAME_SITE
+        value: none
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: MAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
