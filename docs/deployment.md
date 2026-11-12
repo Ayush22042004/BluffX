@@ -2,7 +2,9 @@
 
 The GitHub repository is https://github.com/Ayush22042004/BluffX. Account data is already in Neon PostgreSQL. Keep a single backend instance: live rooms and turn timers are in memory.
 
-The frontend is deployed at **https://bluffx.vercel.app**. Its login page and favicon were verified publicly with HTTP 200. Use this exact origin for Render's `APP_ORIGIN` and `CLIENT_ORIGIN`, and add it to Google's authorized JavaScript origins. Backend connection and production email delivery still require the Render environment settings below.
+The frontend is deployed at **https://bluffx.vercel.app** and the backend at **https://bluffx.onrender.com**. Vercel's production `VITE_SERVER_URL` is set to that backend URL. The backend health endpoint, browser login, session persistence after reload, authenticated AI table creation, and card dealing were verified against the live deployments on 2026-11-12. The temporary verification account was removed and no email was sent. Resend is reported as the configured provider, but actual mail delivery and Google OAuth consent were not exercised by this check.
+
+Use `https://bluffx.vercel.app` for Render's `APP_ORIGIN` and `CLIENT_ORIGIN`, and add it to Google's authorized JavaScript origins.
 
 ## Render backend
 
@@ -41,7 +43,7 @@ Import the same repository into Vercel:
 - Install: `npm ci`
 - Build: `npm run build`
 - Output: `dist`
-- Public environment variable: `VITE_SERVER_URL=https://YOUR-BACKEND.onrender.com`
+- Public environment variable: `VITE_SERVER_URL=https://bluffx.onrender.com`
 
 The committed `client/vercel.json` supplies these build settings and SPA fallback. `VITE_SERVER_URL` is baked into the client: redeploy after changing it. No database, mail, or OAuth client secret belongs on Vercel's client build.
 
