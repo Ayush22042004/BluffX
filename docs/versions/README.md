@@ -4,6 +4,7 @@ Each update gets its own document in this directory. Record implemented behavior
 
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
+| `v0.3.0` multiplayer/social release | `0.3.0` | Local implementation and verification; not deployed | [Implementation and limitations](v0.3.0.md) |
 | Beta version 2 / `v0.2.0-beta.2` development cycle | `0.2.0` | Implemented and locally verified; production rollout pending as of 2026-11-13 | [Complete implementation record](beta-v2.md) |
 
 The earlier live deployment last checked on 2026-11-13 reported `0.2.0-beta.1`. No retrospective beta.1 release certification is implied by this index. The beta version 2 record includes the accumulated reliability overhaul and subsequent avatar, UI, voice and playtest-readiness updates.

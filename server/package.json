@@ -1,6 +1,6 @@
 {
   "name": "bluffx-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Realtime server for BluffX multiplayer card game",
   "main": "src/index.js",
   "type": "commonjs",

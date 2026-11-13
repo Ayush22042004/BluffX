@@ -1,0 +1,94 @@
+{
+  "at": "2026-11-13T09:06:44.200Z",
+  "participants": 10,
+  "meshConnections": 90,
+  "simultaneousSpeakers": 1,
+  "source": "local Chrome synthetic microphone, lobby, memory persistence test double, no TURN",
+  "senderRtpKbps": 167.00464499004644,
+  "hostJsHeapBytes": 12121216,
+  "headlessAnimationFramesPerSecond": 144.6961381108297,
+  "receivers": [
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 11589306,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 10976749,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 10768248,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 9764779,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 10309663,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 10651516,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 9328862,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 9206933,
+      "connections": 9
+    },
+    {
+      "sent": 0,
+      "received": 7218,
+      "lost": 0,
+      "packets": 157,
+      "maxJitterSeconds": 0.001,
+      "heapBytes": 10117056,
+      "connections": 9
+    }
+  ],
+  "limits": "Not mobile/device quality, gameplay FPS, Render CPU/memory, ten simultaneous speakers, physical network bandwidth or SFU comparison. RTP bytes exclude transport overhead."
+}

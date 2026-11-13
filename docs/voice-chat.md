@@ -1,5 +1,7 @@
 # Table voice chat
 
+For the current development release, see the [v0.3.0 record](versions/v0.3.0.md) and [SFU/cost assessment](voice-sfu-assessment.md). Voice remains mesh, not SFU. Local ten-participant connectivity has been exercised; physical-device and mobile signoff remain pending.
+
 In a lobby or match, select **Join Voice** to listen, then **Unmute Mic** to grant microphone access and speak. Joining never opens the microphone. Muting stops and releases the capture device while keeping the call connected. Mute controls what you send; Deafen controls what you hear and does not mute your microphone. Use individual volume sliders to quiet or silence a player. A green indicator shows detected speech. Leave Voice stops capture immediately. Leaving the table, removal, logout, socket disconnection, and navigation away also close audio connections. Reconnecting or refreshing requires deliberately joining voice again. Voice never resets AFK strikes or changes game deadlines.
 
 The browser uses native WebRTC audio with echo cancellation. Automatic gain control is off to avoid independent capture sessions changing microphone gain. Noise reduction is optional and starts off to avoid filtering quiet speech. Each participant connects to other opted-in humans in the same table (at most five peers for six seats). No audio, recordings, speech indicators, SDP, or ICE candidates are stored in PostgreSQL. Render only forwards bounded, rate-limited signaling to authorized seats; no server audio processing or recurring database writes are introduced. Speech detection runs locally four times per second only while voice is joined. Direct peer connections can reveal network addresses to participants; do not treat voice as an anonymity service.
@@ -10,13 +12,17 @@ Microphone capture requires HTTPS in production; localhost works for development
 
 | Backend environment variable | Default / purpose |
 | --- | --- |
+| `VOICE_TURN_PROVIDER` | `cloudflare` enables temporary credentials from the configured Cloudflare TURN key |
+| `CLOUDFLARE_TURN_KEY_ID` | Cloudflare TURN key ID, not account ID; backend only |
+| `CLOUDFLARE_TURN_API_TOKEN` | Key-specific API token; backend only |
+| `VOICE_RELAY_ONLY` | `false`; force relay only for explicit diagnosis |
 | `VOICE_STUN_URL` | `stun:stun.l.google.com:19302`; discovers direct connection candidates |
 | `VOICE_TURN_URL` | Optional comma-separated `turn:`/`turns:` relay URLs |
 | `VOICE_TURN_SECRET` | Optional TURN REST shared authentication secret; backend only |
 
-TURN URLs and the shared secret must both be configured to enable a relay. The backend generates per-seat HMAC credentials valid for 24 hours and only sends those temporary credentials to authorized voice participants. The relay must support TURN REST credentials with the same shared secret. Do not put this secret in a `VITE_` variable. Relay bandwidth is handled by your chosen relay, not Render. No paid service has been added automatically.
+For the shared-secret TURN REST option, TURN URLs and the shared secret must both be configured. That option generates per-seat HMAC credentials valid for 24 hours and requires a relay supporting the same secret. Cloudflare mode instead uses its key ID/API token to obtain temporary ICE credentials. Only temporary credentials reach authorized voice participants. Do not put provider tokens or shared secrets in `VITE_` variables. Relay bandwidth is handled by the chosen relay, not Render. No paid service has been added automatically; provider overages are possible and a free allowance is not a spending cap.
 
-STUN-only connections are not guaranteed across mobile carriers, restrictive routers, VPNs, or corporate firewalls. A TURN relay is needed for reliable cross-network coverage. Failed connections show a retry message instead of blocking gameplay. Actual external TURN connectivity has not been tested because no relay was provided. Renew expired relay credentials by leaving and rejoining voice. Large calls would need a different media topology; this implementation is bounded to existing small BluffX tables.
+STUN-only connections are not guaranteed across mobile carriers, restrictive routers, VPNs, or corporate firewalls. A TURN relay is needed for reliable cross-network coverage. Failed connections show a retry message instead of blocking gameplay. After the credentials were corrected on 2026-11-13, Cloudflare credential generation and a forced-relay two-browser audio test passed, including selected-relay verification and 40 decoded samples without silence. The v0.3.0 ten-context experiment used local direct connections, not cloud relay traffic. Renew expired relay credentials by leaving and rejoining voice. Large/mobile calls still require device testing; SFU remains inactive under the zero-spend restriction.
 
 ## Verification
 

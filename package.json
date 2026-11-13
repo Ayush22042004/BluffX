@@ -1,7 +1,7 @@
 {
   "name": "bluffx-workspace",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
     "dev": "concurrently -n server,client -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "dev:server": "npm --prefix server run dev",
@@ -9,7 +9,7 @@
     "build": "npm --prefix client run build",
     "test": "node --test server/test/*.test.js",
     "test:e2e": "npm --prefix client run test:e2e",
-    "test:postgres": "node --require ./server/test/real-db-env.cjs --test --test-concurrency=1 server/test/durable-pg.test.js server/test/restart-pg.test.js server/test/launch-pg.test.js",
+    "test:postgres": "node --require ./server/test/real-db-env.cjs --test --test-concurrency=1 server/test/durable-pg.test.js server/test/restart-pg.test.js server/test/launch-pg.test.js server/test/v3-pg.test.js",
     "db:migrate-games": "npm --prefix server run db:migrate-games",
     "test:load": "node --max-old-space-size=128 server/scripts/load-game.js",
     "check:release": "node server/scripts/check-release.js",

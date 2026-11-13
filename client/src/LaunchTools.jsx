@@ -8,6 +8,14 @@ export function PrivacyInfo() {
     <>
       <h2>Your privacy</h2>
       <p>
+        Optional social features store a public player identifier, friend
+        requests, friendships, blocks, invitations and cosmetic achievement
+        unlocks. Friends &amp; Records lets you disable requests, invitations and
+        recent-player discovery. History labels hide blocked or non-discoverable
+        opponents. Blocking controls social interactions; it does not remove a
+        player from an existing match. Invitations expire after ten minutes.
+      </p>
+      <p>
         BluffX stores your account profile, uploaded avatar, sign-in sessions,
         and server-validated game records in PostgreSQL. Passwords are hashed.
         Your hand and reconnect credentials are never included in public room

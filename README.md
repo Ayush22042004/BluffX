@@ -6,6 +6,8 @@ Realtime multiplayer Bluff variant with selective challenge mechanics.
 
 See the [version history](docs/versions/README.md) and [complete beta version 2 implementation record](docs/versions/beta-v2.md) for implemented features, migrations, verification results, performance measurements and deployment status. Use the [version template](docs/versions/TEMPLATE.md) for each future update.
 
+The current development release is **0.3.0**: ten-human tables, one/two decks, presets, ready-confirmed rematches, friends/invitations, match insights, achievements and history. See the [v0.3.0 implementation record](docs/versions/v0.3.0.md) for verification, optional features excluded, voice cost constraints and pending production migrations. This development release has not been deployed.
+
 ## What is unique here
 
 When a player calls bluff, they pick one or more positions from the facedown cards played in the previous move.
@@ -81,7 +83,7 @@ Client runs on `http://localhost:5173`.
 
 ## Notes
 
-- Player count: 2 to 6
+- Player count: 2 to 10
 - Host starts game from lobby
 - If a player empties hand, next player must pass/call bluff to finalize result
 
@@ -131,7 +133,7 @@ Use `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, and a verified `MAIL_FROM` sender 
 
 Deploy the frontend to Vercel and the backend to Render using [docs/deployment.md](docs/deployment.md). Account data is stored in Neon PostgreSQL.
 
-## Release 0.2.0
+## Previous release 0.2.0
 
 Loading, login, and gameplay use the production interface without prerelease banners. Offline players get a ten-second reconnect pause, then AI can control their seat for three completed rounds before removal. Returning restores the same seat and current hand. See [the current rules](docs/gameplay-beta.md), [responsive UI verification](docs/ui-audit.md), and [durability, security, tests, and deployment procedure](docs/reliability-overhaul.md).
 
