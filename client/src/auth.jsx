@@ -7,13 +7,16 @@ import React, {
 } from "react";
 import { Icon, Mask, Fan } from "./components";
 import { socket, clearSeatResume, hasGuestSeat } from "./lib/socket";
+import { ConfirmDeletion } from "./LaunchTools";
 const BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
-export async function authRequest(path, body, method = "POST") {
+export async function authRequest(path, body, method = "POST", signal) {
   const response = await fetch(`${BASE}/auth/${path}`, {
     method,
     credentials: "include",
+    signal:
+      signal || (AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined),
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -34,7 +37,7 @@ export function AuthProvider({ children }) {
     [error, setError] = useState("");
   const [flow, setFlow] = useState(() => {
     const q = new URLSearchParams(location.search);
-    return ["reset", "verify"].includes(q.get("auth"))
+    return ["reset", "verify", "delete"].includes(q.get("auth"))
       ? { mode: q.get("auth"), token: q.get("token") || "" }
       : null;
   });
@@ -44,28 +47,46 @@ export function AuthProvider({ children }) {
     return result.user;
   };
   useEffect(() => {
-    let active = true;
-    Promise.all([
-      authRequest("session", undefined, "GET"),
-      authRequest("config", undefined, "GET"),
-    ])
-      .then(([session, config]) => {
-        if (active) {
-          setUser(session.user);
-          setConfig(config);
-        }
-      })
-      .catch(() => {
-        if (active)
+    let active = true,
+      timer,
+      wake;
+    const controller = new AbortController();
+    (async () => {
+      for (let attempt = 0; attempt < 6 && active; attempt++) {
+        try {
+          const signal = AbortSignal.any
+            ? AbortSignal.any([controller.signal, AbortSignal.timeout(30000)])
+            : controller.signal;
+          const [session, configuration] = await Promise.all([
+            authRequest("session", undefined, "GET", signal),
+            authRequest("config", undefined, "GET", signal),
+          ]);
+          if (active) {
+            setUser(session.user);
+            setConfig(configuration);
+            setError("");
+            setLoading(false);
+          }
+          return;
+        } catch {
+          if (!active) return;
           setError(
-            "Cannot reach the game server. Check that it is running and try again.",
+            "Connecting to BluffX server... The server may be waking up.",
           );
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+          if (attempt < 5)
+            await new Promise((resolve) => {
+              wake = resolve;
+              timer = setTimeout(resolve, Math.min(15000, 1000 * 2 ** attempt));
+            });
+        }
+      }
+      if (active) setLoading(false);
+    })();
     return () => {
       active = false;
+      controller.abort();
+      clearTimeout(timer);
+      wake?.();
     };
   }, []);
   useEffect(() => {
@@ -73,6 +94,17 @@ export function AuthProvider({ children }) {
     else socket.disconnect();
     return () => socket.disconnect();
   }, [loading, user?.id, guest, flow]);
+  useEffect(() => {
+    const revoked = () => {
+      clearSeatResume();
+      setUser(null);
+      setGuest(false);
+      sessionStorage.removeItem("bluffx:guest");
+      socket.disconnect();
+    };
+    socket.on("account_revoked", revoked);
+    return () => socket.off("account_revoked", revoked);
+  }, []);
   const clearLink = () => {
     history.replaceState({}, "", location.pathname);
     setFlow(null);
@@ -105,9 +137,24 @@ export function AuthProvider({ children }) {
     return (
       <div className="auth-loading">
         <Mask size={60} />
-        <strong>Setting your place at the table…</strong>
-        <p>Beta game · Your connection and saved seat are being checked.</p>
+        <strong>Connecting to BluffX server...</strong>
+        <p>Checking your connection and restoring your saved seat.</p>
       </div>
+    );
+  if (flow?.mode === "delete")
+    return (
+      <ConfirmDeletion
+        token={flow.token}
+        onDone={(deleted) => {
+          if (deleted) {
+            clearSeatResume();
+            setUser(null);
+            setGuest(false);
+            sessionStorage.removeItem("bluffx:guest");
+          }
+          clearLink();
+        }}
+      />
     );
   if (flow || (!user && !guest))
     return (

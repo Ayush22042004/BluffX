@@ -1,9 +1,15 @@
 const { Pool } = require("pg");
+const { RULES } = require("./rules");
+const { AVATAR_SCHEMA } = require("./avatars");
+const { LAUNCH_SCHEMA } = require("./launch-controls");
 
 // Preserve pg 8's certificate/hostname verification explicitly across upgrades.
 function verifiedConnectionString(value) {
   if (!value || /[?&]uselibpqcompat=true(?:&|$)/.test(value)) return value;
-  return value.replace(/([?&]sslmode=)(?:prefer|require|verify-ca)(?=&|$)/, "$1verify-full");
+  return value.replace(
+    /([?&]sslmode=)(?:prefer|require|verify-ca)(?=&|$)/,
+    "$1verify-full",
+  );
 }
 
 const schema = `
@@ -26,6 +32,8 @@ CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS tokens_user_kind_idx ON tokens(user_id, kind);
 CREATE INDEX IF NOT EXISTS tokens_expiry_idx ON tokens(expires_at);
+${AVATAR_SCHEMA}
+${LAUNCH_SCHEMA}
 `;
 
 // SQL here is application-owned; values always travel separately as parameters.
@@ -60,8 +68,9 @@ async function createDatabase({
   const owned = !pool;
   pool ||= new Pool({
     connectionString: verifiedConnectionString(connectionString),
-    max: 10,
-    connectionTimeoutMillis: 10000,
+    max: RULES.authPoolSize,
+    connectionTimeoutMillis: RULES.storageTimeoutMs,
+    query_timeout: RULES.storageTimeoutMs + 5000,
   });
   if (owned)
     pool.on("error", (error) =>
@@ -74,7 +83,8 @@ async function createDatabase({
       ? new Pool({
           connectionString: verifiedConnectionString(directConnectionString),
           max: 1,
-          connectionTimeoutMillis: 10000,
+          connectionTimeoutMillis: RULES.storageTimeoutMs,
+          query_timeout: RULES.storageTimeoutMs + 5000,
         })
       : pool;
   try {

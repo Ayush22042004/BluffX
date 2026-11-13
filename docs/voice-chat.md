@@ -1,0 +1,45 @@
+# Table voice chat
+
+In a lobby or match, select **Join Voice** to listen, then **Unmute Mic** to grant microphone access and speak. Joining never opens the microphone. Muting stops and releases the capture device while keeping the call connected. Mute controls what you send; Deafen controls what you hear and does not mute your microphone. Use individual volume sliders to quiet or silence a player. A green indicator shows detected speech. Leave Voice stops capture immediately. Leaving the table, removal, logout, socket disconnection, and navigation away also close audio connections. Reconnecting or refreshing requires deliberately joining voice again. Voice never resets AFK strikes or changes game deadlines.
+
+The browser uses native WebRTC audio with echo cancellation. Automatic gain control is off to avoid independent capture sessions changing microphone gain. Noise reduction is optional and starts off to avoid filtering quiet speech. Each participant connects to other opted-in humans in the same table (at most five peers for six seats). No audio, recordings, speech indicators, SDP, or ICE candidates are stored in PostgreSQL. Render only forwards bounded, rate-limited signaling to authorized seats; no server audio processing or recurring database writes are introduced. Speech detection runs locally four times per second only while voice is joined. Direct peer connections can reveal network addresses to participants; do not treat voice as an anonymity service.
+
+## Connectivity and deployment
+
+Microphone capture requires HTTPS in production; localhost works for development. The existing Socket.IO proxy carries signaling, so no new Vercel rewrites or server ports are needed. Deploy frontend and backend together through the normal reviewed release process. Voice requires no schema migration; the earlier avatar/game migrations still apply. No production deployment has been performed for this feature.
+
+| Backend environment variable | Default / purpose |
+| --- | --- |
+| `VOICE_STUN_URL` | `stun:stun.l.google.com:19302`; discovers direct connection candidates |
+| `VOICE_TURN_URL` | Optional comma-separated `turn:`/`turns:` relay URLs |
+| `VOICE_TURN_SECRET` | Optional TURN REST shared authentication secret; backend only |
+
+TURN URLs and the shared secret must both be configured to enable a relay. The backend generates per-seat HMAC credentials valid for 24 hours and only sends those temporary credentials to authorized voice participants. The relay must support TURN REST credentials with the same shared secret. Do not put this secret in a `VITE_` variable. Relay bandwidth is handled by your chosen relay, not Render. No paid service has been added automatically.
+
+STUN-only connections are not guaranteed across mobile carriers, restrictive routers, VPNs, or corporate firewalls. A TURN relay is needed for reliable cross-network coverage. Failed connections show a retry message instead of blocking gameplay. Actual external TURN connectivity has not been tested because no relay was provided. Renew expired relay credentials by leaving and rejoining voice. Large calls would need a different media topology; this implementation is bounded to existing small BluffX tables.
+
+## Verification
+
+`server/test/voice.test.js` exercises real Socket.IO membership, cross-room rejection, signaling validation, mute state, disconnect/removal cleanup, event flood limits, and zero game-state writes from voice traffic.
+
+`client/tests/voice.spec.js` launches two independent Chrome contexts with synthetic microphones and real RTCPeerConnections. It checks established audio connections and received RTP bytes, default mute, unmute/mute track state, deafen, individual volume controls, stopped tracks after leave, no automatic capture after reload, and microphone-denial feedback. These tests run on isolated ports 4020/5180. Physical microphones, mobile devices, remote networks, and TURN relays still need device testing before claiming universal voice connectivity.
+
+Release verification: `npm test` passed 78 tests with two database-only suites skipped; `npm run test:e2e` passed all 21 browser tests; `npm run build` passed. The voice tests also cover leaving and rejoining without a socket change and rejecting signaling from a previous voice session.
+
+Reference: [WebRTC peer connections and ICE servers](https://webrtc.org/getting-started/peer-connections) and [microphone capture requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+
+## Continuous microphone behavior
+
+Voice uses an open microphone after unmuting. Speech detection only changes the green activity dot; it never mutes tracks, pauses playback, or renegotiates the connection. The member label stays Mic on. A 1.2-second activity hold and separate start/continue thresholds prevent flicker between words. The local meter uses floating-point samples over a larger analysis window. Enable Noise reduction only if background noise needs filtering; the switch updates capture constraints without replacing the track or resetting the call.
+
+The two-browser test samples the live microphone repeatedly and checks that received audio bytes continue increasing while the activity meter runs. This verifies the local WebRTC path; it does not reproduce every physical microphone, browser filter, or external-network packet-loss condition.
+
+## Same-computer testing and transport repair
+
+For normal/incognito testing on one computer, join both tabs, unmute **only the sending tab**, and leave the receiving tab muted. The receiving tab no longer captures the same physical microphone. Mute stops capture; unmute acquires a fresh track and replaces the sender track in the existing negotiated call. It does not close peer connections. Both sides negotiate one send/receive audio transceiver, so either tab can take over speaking after the other mutes. Denied microphone permission leaves listening available.
+
+Remote playback elements are attached to the document and are retained across renegotiation. Where supported, receivers request a 120 ms jitter buffer; audio senders are capped at 32 kbps with mono capture. Persistent peer disconnection triggers a bounded ICE-restart attempt by the designated offerer, without rebuilding the microphone. Game socket disconnects still stop voice immediately according to the existing seat-authorization policy.
+
+Voice connection details samples aggregate packet loss, jitter, round-trip time, concealment and direct/relay route only while opened. Copy voice report contains no candidate addresses, SDP, resume tokens or relay credentials. This helps distinguish microphone/playback problems from an actual transport problem.
+
+The strengthened browser test uses a continuous WAV source with two isolated browser contexts. It verifies 40 decoded playback samples with no silent gaps, zero capture requests in the listening tab, capture release on mute, reverse-direction decoded audio, and an ICE restart following a simulated disconnected-state event. Synthetic playback is not a guarantee for every physical headset or driver.

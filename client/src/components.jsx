@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import Deadline from "./Deadline";
+import { avatarUrl } from "./lib/avatar-upload";
 export const RANKS = [
   "A",
   "2",
@@ -81,6 +83,20 @@ export function Mask({ size = 32 }) {
   );
 }
 export function Avatar({ player, large = false, onClick }) {
+  const finalWarning = player?.controllerState
+    ? player.controllerState === "HUMAN_AFK_FINAL_WARNING"
+    : player?.afkStrikes >= 2;
+  const status = player?.isBot
+    ? null
+    : player?.aiTakeover
+      ? "AI Playing"
+      : player?.connected === false
+        ? "Offline"
+        : finalWarning
+          ? "Final Warning"
+          : player?.afkStrikes
+            ? "Possibly AFK"
+            : null;
   return (
     <span
       role={onClick ? "button" : undefined}
@@ -90,7 +106,35 @@ export function Avatar({ player, large = false, onClick }) {
       aria-label={onClick ? "Open my profile" : undefined}
       className={`avatar portrait-${player?.avatar || 0} ${large ? "large" : ""}`}
     >
+      {(player?.avatarPreview || player?.avatarId) && (
+        <img
+          className="custom-avatar-image"
+          src={player.avatarPreview || avatarUrl(player.avatarId)}
+          alt=""
+          decoding="async"
+          draggable={false}
+          onError={(e) => {
+            e.currentTarget.hidden = true;
+          }}
+          onLoad={(e) => {
+            e.currentTarget.hidden = false;
+          }}
+        />
+      )}
       <i className={player?.connected === false ? "offline-dot" : ""} />
+      {status && (
+        <em
+          className={`controller-indicator controller-${player.aiTakeover ? "ai" : player.connected === false ? "offline" : player.afkStrikes >= 2 ? "final" : "warning"}`}
+          aria-label={status}
+          title={status}
+        >
+          {player.aiTakeover
+            ? "AI"
+            : player.connected === false
+              ? "OFF"
+              : "AFK"}
+        </em>
+      )}
     </span>
   );
 }
@@ -327,7 +371,14 @@ export function Challenge({ claim, onConfirm }) {
     </>
   );
 }
-export function RoundResult({ result, host, onContinue, paused = false }) {
+export function RoundResult({
+  result,
+  host,
+  onContinue,
+  paused = false,
+  deadline,
+  now = Date.now(),
+}) {
   return (
     <div className="round-result">
       <div className="overline">REVEAL & ROUND RESULT</div>
@@ -339,6 +390,11 @@ export function RoundResult({ result, host, onContinue, paused = false }) {
             : "They Told the Truth!"}
       </h1>
       <p>{result?.message}</p>
+      {deadline && (
+        <p className="round-countdown" role="status">
+          Next round starts in <Deadline deadline={deadline} />
+        </p>
+      )}
       {!!result?.revealCards?.length && (
         <div className="result-cards">
           {result.revealCards.map((card) => (
@@ -365,26 +421,36 @@ export function RoundResult({ result, host, onContinue, paused = false }) {
           Next Round
         </button>
       ) : (
-        <p className="muted">Waiting for the host to start the next round…</p>
+        <p className="muted">
+          The next round starts automatically. The host can advance early.
+        </p>
       )}
     </div>
   );
 }
 export function Results({ state, me, onRematch, onHome }) {
-  const winner = state.players.find((p) => p.id === state.winnerId),
+  const winner = (state.standings || state.players).find(
+      (p) => p.id === state.winnerId,
+    ),
     won = winner?.id === me.id;
-  const standings = [...state.players].sort((a, b) =>
-    a.id === winner?.id
-      ? -1
-      : b.id === winner?.id
-        ? 1
-        : state.playerHandsCount[a.id] - state.playerHandsCount[b.id],
-  );
+  const standings =
+    state.standings ||
+    [...state.players].sort((a, b) =>
+      a.id === winner?.id
+        ? -1
+        : b.id === winner?.id
+          ? 1
+          : state.playerHandsCount[a.id] - state.playerHandsCount[b.id],
+    );
   return (
     <main className="results-page">
       <div className="win-heading">
         <Icon name="crown" size={66} />
         <p className="overline">GAME COMPLETE · FINAL RESULT</p>
+        <p className="result-verification">
+          {state.resultRanked ? "Verified ranked result" : "Unranked result"}
+          {winner?.aiAssisted ? " - AI assisted" : ""}
+        </p>
         <h1>{won ? `You (${me.name}) Win!` : `${winner?.name} Wins!`}</h1>
         <p>
           {state.winReason === "last_player"
@@ -400,7 +466,11 @@ export function Results({ state, me, onRematch, onHome }) {
           Match Summary
         </h3>
         <Stat icon="flag" label="Rounds played" value={state.roundNumber} />
-        <Stat icon="users" label="Players" value={state.players.length} />
+        <Stat
+          icon="users"
+          label="Players"
+          value={state.standings?.length || state.players.length}
+        />
         <Stat
           icon="cards"
           label="Your cards left"
@@ -432,16 +502,24 @@ export function Results({ state, me, onRematch, onHome }) {
         </h3>
         {standings.map((p, i) => (
           <div className={`standing ${i === 0 ? "winner" : ""}`} key={p.id}>
-            <strong className="position">{i + 1}</strong>
+            <strong className="position">{p.placement || i + 1}</strong>
             <Avatar player={p} />
             <div>
               <b>{p.id === me.id ? `You (${p.name})` : p.name}</b>
               <small>
-                {i === 0 ? "Winner" : p.isBot ? "AI opponent" : "Player"}
+                {p.forfeit
+                  ? "Forfeit"
+                  : p.aiAssisted
+                    ? "AI assisted"
+                    : i === 0
+                      ? "Winner"
+                      : p.isBot
+                        ? "AI opponent"
+                        : "Player"}
               </small>
             </div>
             <strong>
-              {state.playerHandsCount[p.id]}
+              {p.forfeit ? "-" : state.playerHandsCount[p.id]}
               <small>cards left</small>
             </strong>
           </div>

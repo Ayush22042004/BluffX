@@ -15,8 +15,12 @@ module.exports = defineConfig({
         MAIL_PROVIDER: "local",
         NODE_ENV: "development",
         PORT: "4020",
+        // Browser contexts share one loopback IP; production flood limits are tested separately.
+        GAME_SETUP_BURST: "50",
+        GAME_SETUP_PER_MINUTE: "120",
         APP_ORIGIN: "http://localhost:5180",
         CLIENT_ORIGIN: "http://localhost:5180",
+        BLUFFX_TEST_TURN: process.env.BLUFFX_TEST_TURN || "false",
       },
       url: "http://localhost:4020/health",
       reuseExistingServer: false,

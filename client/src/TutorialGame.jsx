@@ -27,22 +27,22 @@ const LESSONS = [
   },
   {
     title: "Your claim stands",
-    body: "Priya and Neel both pass. Your two cards stay out of your hand, and the pile clears. You are two cards closer to winning.",
+    body: "Bot 2 and Bot 1 both pass. Your two cards stay out of your hand, and the pile clears. You are two cards closer to winning.",
     hint: "When everyone passes, the claimant starts a fresh pile.",
   },
   {
     title: "Something doesn’t add up…",
-    body: "In the next practice hand, Neel claims 2 Jacks. You can trust the claim or call bluff. Let’s challenge it and choose a card to reveal.",
+    body: "In the next practice hand, Bot 1 claims 2 Jacks. You can trust the claim or call bluff. Let’s challenge it and choose a card to reveal.",
     hint: "For 2 played cards, inspect 1. For larger claims, inspect half, rounded down.",
   },
   {
     title: "You caught the bluff!",
-    body: "That card is not a Jack. Neel must pick up the whole pile. You won the challenge and would start the next round.",
+    body: "That card is not a Jack. Bot 1 must pick up the whole pile. You won the challenge and would start the next round.",
     hint: "Any false card you inspect catches the bluff. If all inspected cards are true, you take the pile.",
   },
   {
     title: "Know when to pass",
-    body: "In this practice round, Priya starts with a claim of 1 Ace. Passing accepts her claim without revealing it. Try passing now.",
+    body: "In this practice round, Bot 2 starts with a claim of 1 Ace. Passing accepts her claim without revealing it. Try passing now.",
     hint: "Passing costs no cards. If everyone passes, the pile clears.",
   },
   {
@@ -57,7 +57,7 @@ const LESSONS = [
   },
   {
     title: "Your poker face is ready",
-    body: "Both opponents passed your final claim. You emptied your hand and won the practice game. You now know how to claim, challenge, pass, and finish.",
+    body: "Both opponents passed your final claim. You emptied your hand and won the practice game. You now know how to claim, challenge, pass, and finish. In live games, three missed turns activate temporary AI. Use Take Control to return; only a legal human gameplay action clears AFK strikes.",
     hint: "Real opponents choose their own responses. Keep them guessing!",
   },
 ];
@@ -90,15 +90,15 @@ export default function TutorialGame({ player, onComplete, busy }) {
     if (next === 5) setRank("Q");
   };
   const group = [0, 0, 1, 1, 2, 3, 3, 4][step];
-  const neel = { name: "Neel", avatar: 0 },
-    priya = { name: "Priya", avatar: 1 };
+  const neel = { name: "Bot 1", avatar: 0 },
+    priya = { name: "Bot 2", avatar: 1 };
   const pileCount =
     step === 0 ? 0 : step === 2 ? 2 : step === 4 ? 1 : step === 6 ? 2 : 0;
   const claim =
     step === 2
-      ? "Neel claims 2 Jacks"
+      ? "Bot 1 claims 2 Jacks"
       : step === 4
-        ? "Priya claims 1 Ace"
+        ? "Bot 2 claims 1 Ace"
         : step === 6
           ? "You claim 2 Queens"
           : step === 1
@@ -137,7 +137,7 @@ export default function TutorialGame({ player, onComplete, busy }) {
                 <div>
                   <strong>{p.name}</strong>
                   <small>
-                    {p.name === "Neel"
+                    {p.name === "Bot 1"
                       ? step >= 3
                         ? 4
                         : step === 2
@@ -266,7 +266,7 @@ export default function TutorialGame({ player, onComplete, busy }) {
           {step === 5 && (
             <p className="tutorial-passed">
               <Icon name="check" size={15} />
-              You passed. Neel passed too, so Priya’s pile cleared.
+              You passed. Bot 1 passed too, so Bot 2’s pile cleared.
             </p>
           )}
           {step === 6 && (
@@ -298,7 +298,7 @@ export default function TutorialGame({ player, onComplete, busy }) {
             <div className="panel tutorial-evidence">
               <Challenge
                 claim={{
-                  playerName: "Neel",
+                  playerName: "Bot 1",
                   cardCount: 2,
                   declaredRank: "J",
                   requiredPickCount: 1,

@@ -1,0 +1,43 @@
+{
+  "release": "0.2.0-beta.2",
+  "mode": "in-memory-test-double",
+  "roomCount": 100,
+  "roundsPerRoom": 10,
+  "rateLimitsDisabledForLoopback": true,
+  "workload": {
+    "count": 3000,
+    "averageMs": 111.1623156666667,
+    "p95Ms": 187.01789999999983,
+    "rounds": 1000,
+    "wallMs": 3992.1828,
+    "cpuMs": 6782,
+    "sqlQueries": null,
+    "receiptLookups": 0,
+    "commits": 3000,
+    "messages": 8000,
+    "bytes": 8172479
+  },
+  "idle": {
+    "durationMs": 2000,
+    "sqlQueries": null,
+    "receiptLookups": 0,
+    "commits": 0,
+    "messages": 0
+  },
+  "persistence": {
+    "count": 3502,
+    "averageMs": 0.9643513135351298,
+    "p95Ms": 0.2699000000002343
+  },
+  "elapsedMs": 8223.7558,
+  "cpuMs": 9375,
+  "rssBytes": 143552512,
+  "peakRssBytes": 143101952,
+  "heapUsedBytes": 37886920,
+  "eventLoopP95Ms": 94.175231,
+  "appMessages": 9301,
+  "appBytes": 9421156,
+  "aiTakeovers": 2,
+  "activeRooms": 99,
+  "sockets": 199
+}

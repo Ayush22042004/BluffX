@@ -1,46 +1,103 @@
 require("./environment").loadEnvironment();
 const express = require("express");
-const http = require("http");
+const http = require("node:http");
+const crypto = require("node:crypto");
 const cors = require("cors");
 const { Server } = require("socket.io");
-const crypto = require("crypto");
 const { createAuth } = require("./auth");
+const { createGameStore, error } = require("./game-store");
+const { RoomService } = require("./room-service");
+const { RoomDelivery } = require("./room-delivery");
+const { DeadlineScheduler } = require("./deadline-scheduler");
+const { Diagnostics } = require("./diagnostics");
 const {
-  online,
-  markOffline,
-  markOnline,
-  removePlayer,
-  tickPresence,
-} = require("./presence");
-const seatId = (socket) => socket.data.playerId || socket.id;
-const tokenHash = (value) =>
-  crypto.createHash("sha256").update(value).digest("hex");
-const {
-  createDeck,
-  applyPlay,
-  applyPass,
-  applyChallenge,
-  publicState,
-  nextRound,
-  startGame,
-  finishGame,
-} = require("./game");
-async function main() {
-  const PORT = process.env.PORT || 4000;
+  RateLimiter,
+  validatePayload,
+  fingerprint,
+  REQUEST_FP,
+} = require("./protocol");
+const { RULES } = require("./rules");
+const { createVoice } = require("./voice");
+const RELEASE = require("../package.json").version;
+const BUILD = `${RELEASE}:${(process.env.RENDER_GIT_COMMIT || process.env.BUILD_SHA || "local").slice(0, 40)}`;
+const { installLaunch, checkInvitation } = require("./launch-controls");
+const MUTATIONS = [
+  "set_ready",
+  "start_game",
+  "restart_game",
+  "play_cards",
+  "pass_bluff",
+  "call_bluff",
+  "continue_round",
+  "leave_room",
+  "update_profile",
+  "reclaim_control",
+  "kick_player",
+];
+function safeError(e, actionId) {
+  const safe = [
+    "INVALID_",
+    "STALE_",
+    "NOT_",
+    "ACTION_",
+    "DUPLICATE_",
+    "RATE_",
+    "UNAUTHORIZED_",
+    "AI_",
+    "ROOM_",
+    "ALREADY_",
+    "INCORRECT_",
+    "RESUME_",
+    "UNKNOWN_",
+  ];
+  const known =
+    typeof e.code === "string" &&
+    safe.some((prefix) => e.code.startsWith(prefix));
+  return {
+    ok: false,
+    actionId,
+    code: known
+      ? e.code
+      : e.code === "VERSION_CONFLICT"
+        ? "STALE_TURN"
+        : "STORAGE_UNAVAILABLE",
+    message: known
+      ? e.message
+      : e.code === "VERSION_CONFLICT"
+        ? "The room changed. Synchronize and retry."
+        : "Game storage is temporarily unavailable. Your action could not be confirmed; reconnect before retrying.",
+    retryAfterMs: e.retryAfterMs,
+  };
+}
+async function startServer({
+  port = Number(process.env.PORT || 4000),
+  store: providedStore,
+} = {}) {
   const production = process.env.NODE_ENV === "production";
+  if (production)
+    for (const key of ["OPS_API_TOKEN", "RATE_IDENTITY_SECRET"])
+      if ((process.env[key] || "").length < 32)
+        throw Error(`${key} must contain at least 32 characters in production.`);
+  if (
+    process.env.PLAYTEST_INVITE_ONLY === "true" &&
+    !process.env.PLAYTEST_ALLOWED_EMAILS?.trim()
+  )
+    throw Error(
+      "PLAYTEST_ALLOWED_EMAILS is required for invite-only playtests.",
+    );
   const allowed = new Set(
     [
-      ...(!production
-        ? [
+      ...(production
+        ? []
+        : [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "http://localhost:4173",
             "http://127.0.0.1:4173",
-          ]
-        : []),
+          ]),
       ...(process.env.CLIENT_ORIGIN || "").split(","),
     ]
-      .map((value) => value.trim())
+      .map((v) => v.trim())
       .filter(Boolean),
   );
   const origin = (value, cb) => {
@@ -56,543 +113,687 @@ async function main() {
   const app = express();
   if (process.env.RENDER === "true") app.set("trust proxy", 1);
   app.use(cors({ origin, credentials: true }));
-  const auth = await createAuth({
-    allowedOrigins: allowed,
-    onRevoke: (id, hash) => {
-      for (const socket of io.sockets.sockets.values()) {
-        if (
-          socket.data.accountId === id &&
-          (!hash || socket.data.sessionHash === hash)
-        ) {
-          leave(socket);
-          socket.disconnect(true);
-        }
-      }
-    },
-  });
-  app.use("/auth", auth.router);
-  app.get("/health", (_, res) =>
-    res.json({ ok: true, version: require("../package.json").version }),
-  );
-  app.get("/", (_, res) =>
-    res.send("BluffX server is running. Open http://localhost:5173 to play."),
-  );
   const server = http.createServer(app),
     io = new Server(server, {
       cors: { origin, credentials: true },
-      allowRequest: (req, callback) => origin(req.headers.origin, callback),
+      allowRequest: (req, cb) => origin(req.headers.origin, cb),
+      maxHttpBufferSize: RULES.maxPayloadBytes,
       pingInterval: 4000,
       pingTimeout: 4000,
-    }),
-    rooms = new Map();
-  const seatTokens = new Map();
-  const BOT_NAMES = ["Neel", "Priya", "Rohan", "Meera", "Kabir"];
-  const emitError = (socket, error) =>
-    socket.emit("action_error", { message: error.message || String(error) });
-  function broadcast(room) {
-    for (const player of room.players)
-      if (!player.isBot && player.socketId)
-        io.to(player.socketId).emit("room_state", publicState(room, player.id));
-  }
-  function releaseSeat(room, player) {
-    if (player.resumeHash) seatTokens.delete(player.resumeHash);
-    const socket = io.sockets.sockets.get(player.socketId);
-    if (socket) {
-      socket.leave(room.id);
-      socket.emit("room_removed", {
-        message: "You were removed from this table.",
-      });
-    }
-  }
-  function processPresence(room) {
-    const result = tickPresence(room);
-    for (const player of result.removed) releaseSeat(room, player);
-    if (room.closed) {
-      for (const p of room.players) releaseSeat(room, p);
-      clearTimeout(room.botTimer);
-      rooms.delete(room.id);
-    }
-    return result.changed;
-  }
-  function bindSeat(room, socket, player) {
-    if (player.resumeHash) seatTokens.delete(player.resumeHash);
-    const token = crypto.randomBytes(32).toString("hex");
-    Object.assign(player, {
-      socketId: socket.id,
-      accountId: socket.data.accountId || null,
-      connected: true,
-      resumeHash: tokenHash(token),
     });
-    socket.data.playerId = player.id;
-    seatTokens.set(player.resumeHash, { roomId: room.id, playerId: player.id });
-    socket.join(room.id);
-    socket.emit("seat_session", {
-      token,
-      roomId: room.id,
-      guest: !socket.data.accountId,
-    });
-  }
-  function notify(room, event) {
-    processPresence(room);
-    if (event) io.to(room.id).emit("bluff_result", event);
-    broadcast(room);
-    scheduleBot(room);
-  }
-  function scheduleBot(room) {
-    clearTimeout(room.botTimer);
-    if (room.closed || room.pause) return;
-    if (room.phase === "round_result" && !room.players.some(online)) {
-      room.botTimer = setTimeout(() => {
-        if (
-          room.phase === "round_result" &&
-          !room.pause &&
-          !room.players.some(online)
-        ) {
-          nextRound(room);
-          notify(room);
-        }
-      }, 4000);
-      return;
-    }
-    if (room.phase !== "playing") return;
-    const player = room.players[room.currentTurnIndex];
-    if (!player || (!player.isBot && !player.aiTakeover)) return;
-    room.botTimer = setTimeout(
-      () => {
-        if (
-          room.phase !== "playing" ||
-          room.pause ||
-          room.players[room.currentTurnIndex]?.id !== player.id ||
-          (!player.isBot && !player.aiTakeover)
-        )
-          return;
-        try {
-          const hand = room.hands[player.id],
-            claim = room.lastMove;
-          let result;
-          if (claim && (room.pendingWinnerId || Math.random() < 0.24)) {
-            if (Math.random() < 0.45) {
-              const indexes = claim.cards
-                .map((_, i) => i)
-                .sort(() => Math.random() - 0.5)
-                .slice(0, Math.max(1, Math.floor(claim.cards.length / 2)));
-              result = applyChallenge(room, player.id, indexes);
-            } else result = applyPass(room, player.id);
-          } else {
-            const matching = hand.filter((c) => c.rank === room.roundRank);
-            if (claim && !matching.length && Math.random() < 0.65)
-              result = applyPass(room, player.id);
-            else {
-              const truthful = Math.random() < 0.68;
-              const pool =
-                room.roundRank && truthful && matching.length ? matching : hand;
-              const count = Math.min(
-                pool.length,
-                1 + Math.floor(Math.random() * 3),
-              );
-              const chosen = pool.slice(0, count);
-              const rank = room.roundRank || chosen[0].rank;
-              result = applyPlay(
-                room,
-                player.id,
-                chosen.map((c) => c.id),
-                rank,
-              );
-            }
-          }
-          notify(room, result);
-        } catch (error) {
-          console.error("Bot action failed:", error);
-        }
-      },
-      Math.max(
-        0,
-        Math.min(
-          2200 + Math.random() * 1600,
-          (room.turnEndsAt || Date.now() + 4000) - Date.now() - 50,
+  const limiter = new RateLimiter();
+  const metrics = new Diagnostics(
+    production || process.env.GAME_DIAGNOSTICS === "true",
+  );
+  const delivery = new RoomDelivery();
+  const storageNotices = new Map();
+  let scheduler, voice;
+  let requestRecovery;
+  const recovery = new Promise((resolve) => {
+    requestRecovery = resolve;
+  });
+  let activeRequests = 0;
+  let ready = false,
+    stopping = false;
+  const store = providedStore || (await createGameStore());
+  const service = new RoomService(store, {
+    onCommit: (room, effects) => {
+      voice?.reconcile(room);
+      if (effects.finalized) {
+        const ids = new Set(
+          (room.participants || []).map((p) => p.accountId).filter(Boolean),
+        );
+        for (const s of io.sockets.sockets.values())
+          if (ids.has(s.data.accountId))
+            s.emit("stats_updated", { matchId: room.matchId });
+      }
+      const prepared = delivery.prepare(room);
+      metrics.add(
+        "rounds",
+        Math.max(
+          0,
+          (room.completedRounds || 0) -
+            (effects.previous?.completedRounds || 0),
         ),
-      ),
-    );
-  }
-  function roomFor(socket, id) {
-    const room = rooms.get(String(id || "").toUpperCase());
-    if (
-      !room ||
-      !room.players.some(
-        (p) =>
-          p.id === seatId(socket) &&
-          p.socketId === socket.id &&
-          p.connected !== false,
-      )
-    )
-      throw Error("You are not seated in this room.");
-    return room;
-  }
-  function assertUnseated(socket) {
-    if (
-      [...rooms.values()].some((r) =>
-        r.players.some(
-          (p) =>
-            p.id === seatId(socket) ||
-            (socket.data.accountId && p.accountId === socket.data.accountId),
-        ),
-      )
-    )
-      throw Error("Leave your current table before joining another.");
-  }
-  function nameFor(name) {
-    if (typeof name !== "string" || !name.trim())
-      throw Error("Choose a player name first.");
-    return name.trim().slice(0, 20);
-  }
-  function avatarFor(value) {
-    return Number.isInteger(value) && value >= 0 && value < 6 ? value : 0;
-  }
-  function leave(socket) {
-    for (const room of [...rooms.values()]) {
-      const player = room.players.find(
-        (p) => p.id === seatId(socket) && p.socketId === socket.id,
       );
-      if (!player) continue;
-      socket.leave(room.id);
-      removePlayer(room, player.id);
-      if (player.resumeHash) seatTokens.delete(player.resumeHash);
+      const members = io.sockets.adapter.rooms.get(room.id);
+      for (const socketId of members || []) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (!socket) continue;
+        const p = room.players.find((p) => p.id === socket.data.playerId);
+        if (!p || room.closed) {
+          socket.leave(room.id);
+          socket.data.roomId = null;
+          socket.emit("room_removed", {
+            message: p
+              ? "This completed table has closed."
+              : "You left or forfeited this table.",
+          });
+          continue;
+        }
+        if (p.controlGeneration !== socket.data.generation) {
+          socket.data.replaced = true;
+          socket.emit("seat_replaced", {
+            message: "Your seat was recovered in another tab.",
+          });
+          socket.disconnect(true);
+          continue;
+        }
+        delivery.send(socket, room, prepared);
+      }
       if (room.closed) {
-        rooms.delete(room.id);
-        clearTimeout(room.botTimer);
-      } else {
-        broadcast(room);
-        scheduleBot(room);
+        storageNotices.delete(room.id);
+        delivery.views.delete(room.id);
       }
-    }
-    socket.emit("room_left");
+      if (effects.event) io.to(room.id).emit("bluff_result", effects.event);
+    },
+  });
+  service.metrics = metrics;
+  if (metrics.enabled && store.pool) {
+    const wrapped = new WeakSet();
+    const instrument = (client) => {
+      if (wrapped.has(client)) return;
+      wrapped.add(client);
+      const query = client.query.bind(client);
+      client.query = (...args) => {
+        metrics.add("sqlCalls");
+        return query(...args);
+      };
+    };
+    store.pool._clients.forEach(instrument);
+    store.pool.on("connect", instrument);
   }
-  function disconnect(socket) {
-    if (socket.data.replaced) return;
-    for (const room of rooms.values()) {
-      const player = room.players.find(
-        (p) => p.id === seatId(socket) && p.socketId === socket.id,
-      );
-      if (!player) continue;
-      if (markOffline(room, player.id)) {
-        player.socketId = null;
-        broadcast(room);
-        scheduleBot(room);
-      }
-    }
+  let auth;
+  try {
+    await service.initialize();
+    auth = await createAuth({
+      allowedOrigins: allowed,
+      onErase: (id) => service.eraseAccount(id),
+      onRevoke: (id, sessionHash) => {
+        for (const socket of io.sockets.sockets.values())
+          if (
+            socket.data.accountId === id &&
+            (!sessionHash || socket.data.sessionHash === sessionHash)
+          ) {
+            // Session revocation uses a durable disconnect/forfeit, not a client result.
+            socket.emit("account_revoked");
+            const actor = actorFor(socket);
+            const room = service.rooms.get(socket.data.roomId);
+            if (room) {
+              const { envelope } = require("./protocol");
+              service
+                .command(room.id, actor, "leave_room", {
+                  ...envelope(room),
+                  actionId: crypto.randomUUID(),
+                })
+                .catch(() => {});
+            }
+            socket.disconnect(true);
+          }
+      },
+    });
+  } catch (e) {
+    await store.close();
+    io.close();
+    throw e;
   }
-  function resumeSeat(socket) {
-    const raw = socket.handshake.auth?.resumeToken;
-    const saved =
-      typeof raw === "string" && /^[a-f0-9]{64}$/.test(raw)
-        ? seatTokens.get(tokenHash(raw))
-        : null;
-    let room = saved && rooms.get(saved.roomId);
-    let player = room?.players.find((p) => p.id === saved.playerId);
-    if (!player && socket.data.accountId) {
-      room = [...rooms.values()].find((r) =>
-        r.players.some(
-          (p) => p.accountId === socket.data.accountId && p.connected === false,
-        ),
-      );
-      player = room?.players.find(
-        (p) => p.accountId === socket.data.accountId && p.connected === false,
-      );
-    }
-    if (
-      !player ||
-      (player.accountId || null) !== (socket.data.accountId || null)
-    ) {
-      if (raw)
-        socket.emit("seat_expired", {
-          message: "Your previous table is no longer available.",
-        });
-      return;
-    }
-    processPresence(room);
-    if (!room.players.includes(player) || room.closed) {
-      socket.emit("seat_expired", { message: "Your offline seat expired." });
-      return;
-    }
-    const previous = io.sockets.sockets.get(player.socketId);
-    if (previous && previous.id !== socket.id) {
-      previous.data.replaced = true;
-      previous.emit("seat_replaced", {
-        message: "Your seat was opened in another tab.",
+  app.use("/auth", auth.router);
+  app.get("/health", (_req, res) =>
+    res
+      .status(ready && store.available ? 200 : 503)
+      .json({ ok: ready && store.available, version: RELEASE, build: BUILD }),
+  );
+  const endpoint = (fn) => async (req, res) => {
+    try {
+      limiter.consume("http:" + req.ip, RULES.httpBurst, RULES.httpRefill);
+      res.set("Cache-Control", "no-store");
+      res.json(await fn(req));
+    } catch (e) {
+      res.status(e.code === "RATE_LIMITED" ? 429 : e.status || 503).json({
+        message: e.status ? e.message : "Statistics temporarily unavailable.",
       });
-      previous.disconnect(true);
     }
-    markOnline(room, player.id);
-    bindSeat(room, socket, player);
-    broadcast(room);
-    scheduleBot(room);
+  };
+  app.get(
+    "/auth/stats",
+    endpoint(async (req) => {
+      const session = await auth.sessionFromCookie(req.headers.cookie);
+      if (!session)
+        throw Object.assign(Error("Please sign in again."), { status: 401 });
+      return { stats: await store.stats(session.user.id) };
+    }),
+  );
+  app.get(
+    "/auth/leaderboard",
+    endpoint((req) => {
+      const page = Number(req.query.page || 0),
+        limit = Number(req.query.limit || 20);
+      if (
+        !Number.isInteger(page) ||
+        page < 0 ||
+        page > 10000 ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 50
+      )
+        throw Object.assign(Error("Invalid pagination."), { status: 400 });
+      return store.leaderboard(page, limit);
+    }),
+  );
+  app.get("/", (_req, res) => res.send("BluffX authoritative game server."));
+  installLaunch({ app, auth, service, io, metrics, build: BUILD });
+  function actorFor(socket) {
+    return {
+      id: socket.data.playerId,
+      accountId: socket.data.accountId || null,
+      generation: socket.data.generation,
+      proposal: socket.data.proposal,
+      profile: socket.data.accountProfile,
+    };
+  }
+  voice = createVoice({ io, service, actorFor, limiter });
+  function bind(socket, result) {
+    socket.data.playerId = result.seatId;
+    socket.data.generation = result.generation;
+    socket.data.roomId = result.roomId;
+    socket.join(result.roomId);
+    socket.emit("seat_session", {
+      roomId: result.roomId,
+      guest: !socket.data.accountId,
+      accepted: true,
+    });
+    const room = service.rooms.get(result.roomId);
+    if (room) delivery.full(socket, room);
   }
   io.use(async (socket, next) => {
     try {
+      if (!ready || stopping || !store.available)
+        throw Error("Server is recovering. Reconnect shortly.");
+      const peer = socket.handshake.address;
+      // Match Express's one trusted Render hop. Never accept arbitrary client XFF.
+      const forwarded = socket.request.headers["x-forwarded-for"];
+      const ip =
+        app.get("trust proxy fn")(peer, 0) && typeof forwarded === "string"
+          ? forwarded.split(",").at(-1).trim()
+          : peer;
+      socket.data.rateIp = ip;
+      limiter.consume(
+        "connectIp:" + ip,
+        process.env.RENDER === "true" ? 300 : RULES.connectionBurst,
+        process.env.RENDER === "true" ? 10 : 1,
+      );
+      socket.data.rateIdentity =
+        auth.rateIdentity(socket.handshake.headers.cookie) || ip;
+      limiter.consume(
+        "connect:" + socket.data.rateIdentity,
+        RULES.connectionBurst,
+        1,
+      );
+      if (Buffer.byteLength(JSON.stringify(socket.handshake.auth || {})) > 2048)
+        throw error("INVALID_PAYLOAD", "Invalid connection details.");
       const session = await auth.sessionFromCookie(
         socket.handshake.headers.cookie,
       );
       if (session) {
         socket.data.accountId = session.user.id;
+        socket.data.accountProfile = {
+          name: session.user.name,
+          avatar: session.user.avatar,
+          avatarId: session.user.avatar_id || null,
+          emailVerified: Boolean(session.user.email_verified),
+        };
         socket.data.sessionHash = session.hash;
       }
+      socket.data.playerId = crypto.randomUUID();
+      socket.data.generation = 1;
+      const proposal = socket.handshake.auth?.nextResumeToken;
+      if (!/^[a-f0-9]{64}$/.test(proposal || ""))
+        throw error(
+          "RESUME_SECRET_REQUIRED",
+          "Refresh the app to use the current secure game protocol.",
+        );
+      socket.data.proposal = proposal;
       next();
-    } catch {
-      next(new Error("Account storage is unavailable. Try again shortly."));
+    } catch (e) {
+      next(
+        Object.assign(Error(e.message), {
+          data: { code: e.code || "CONNECTION_REJECTED" },
+        }),
+      );
     }
   });
   io.on("connection", (socket) => {
-    resumeSeat(socket);
-    const on = (name, handler) =>
-      socket.on(name, async (data = {}) => {
+    if (metrics.enabled)
+      socket.onAnyOutgoing((event, ...data) => {
+        metrics.add("messages");
+        metrics.add(
+          "bytes",
+          Buffer.byteLength(JSON.stringify([event, ...data])),
+        );
+      });
+    socket.data.initializing = (async () => {
+      const token = socket.handshake.auth?.resumeToken,
+        pending = socket.handshake.auth?.pendingResumeToken;
+      const result = await service.resume(actorFor(socket), [token, pending]);
+      if (result) bind(socket, result);
+      // A pending proposal alone is normal before this browser has joined a table.
+      else if (token)
+        socket.emit("seat_expired", {
+          message: "Your saved seat expired or its private token was replaced.",
+        });
+      socket.emit("server_ready", { ready: true });
+    })().catch((e) => {
+      socket.data.initializationFailed = true;
+      socket.emit("action_error", safeError(e));
+      socket.disconnect(true);
+    });
+    const on = (event, handler) =>
+      socket.on(event, async (data = {}, ack) => {
+        if (stopping) {
+          if (typeof ack === "function")
+            ack({
+              ok: false,
+              code: "SERVER_RECOVERING",
+              message: "Server is stopping. Reconnect shortly.",
+            });
+          return;
+        }
+        activeRequests++;
+        const actionStarted = metrics.start();
         try {
+          validatePayload(data, event);
+          const originalFingerprint = fingerprint(event, data);
+          if (!/^[a-zA-Z0-9_-]{8,100}$/.test(data.actionId || ""))
+            throw error("INVALID_ACTION", "A unique actionId is required.");
+          await socket.data.initializing;
+          if (stopping || socket.data.initializationFailed || !socket.connected)
+            throw error("UNAUTHORIZED_SEAT", "Connection is no longer active.");
+          const roomId = String(data.roomId || socket.data.roomId || "")
+            .trim()
+            .toUpperCase();
+          const cached = service.receipts.get(
+            `${roomId}:${socket.data.playerId}:${data.actionId}`,
+          );
+          if (cached) {
+            if (cached.fingerprint !== fingerprint(event, data))
+              throw error(
+                "DUPLICATE_ACTION",
+                "Action ID reused with different data.",
+              );
+            const response = { ...cached.acknowledgement, duplicate: true };
+            if (typeof ack === "function") ack(response);
+            else socket.emit("action_ack", response);
+            return;
+          }
+          const cachedSetup = setupReceipts.get(data.actionId);
+          if (cachedSetup) {
+            if (cachedSetup.fp !== originalFingerprint)
+              throw error("DUPLICATE_ACTION", "Action ID reused.");
+            const response = { ...cachedSetup.result, duplicate: true };
+            if (typeof ack === "function") ack(response);
+            else socket.emit("action_ack", response);
+            return;
+          }
+          if (["create_room", "create_ai_room", "join_room"].includes(event))
+            limiter.consume(
+              "setupIdentity:" +
+                (socket.data.accountId || socket.data.rateIdentity),
+              RULES.setupBurst,
+              RULES.setupRefillPerSec,
+            );
+          limiter.consume("socket:" + socket.id);
+          limiter.consume(
+            "identity:" + (socket.data.accountId || socket.data.rateIdentity),
+            RULES.identityBurst,
+            RULES.identityRefill,
+          );
+          limiter.consume(
+            "event:" + socket.id + ":" + event,
+            [
+              "create_room",
+              "create_ai_room",
+              "join_room",
+              "restart_game",
+            ].includes(event)
+              ? RULES.setupBurst
+              : RULES.eventTypeBurst,
+            [
+              "create_room",
+              "create_ai_room",
+              "join_room",
+              "restart_game",
+            ].includes(event)
+              ? RULES.setupRefillPerSec
+              : RULES.eventTypeRefill,
+          );
           if (socket.data.accountId) {
             const session = await auth.sessionFromCookie(
               socket.handshake.headers.cookie,
             );
-            if (!session)
-              throw Error("Your session expired. Please sign in again.");
+            if (!session || session.user.id !== socket.data.accountId)
+              throw error("UNAUTHORIZED_SEAT", "Please sign in again.");
+            socket.data.accountProfile.emailVerified = Boolean(
+              session.user.email_verified,
+            );
             if (
               [
                 "create_room",
                 "create_ai_room",
                 "join_room",
                 "update_profile",
-              ].includes(name)
-            ) {
+              ].includes(event)
+            )
               data = {
                 ...data,
                 name: session.user.name,
                 avatar: session.user.avatar,
+                avatarId: session.user.avatar_id || null,
               };
-            }
           }
-          handler(data);
-        } catch (error) {
-          emitError(socket, error);
-        }
-      });
-    function create(data, ai) {
-      assertUnseated(socket);
-      const name = nameFor(data.name);
-      const botCount = data.botCount === undefined ? 3 : data.botCount;
-      if (ai && (!Number.isInteger(botCount) || botCount < 1 || botCount > 5))
-        throw Error("Choose between 1 and 5 AI opponents.");
-      const maxPlayers = ai ? botCount + 1 : Number(data.maxPlayers || 6);
-      if (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > 6)
-        throw Error("Choose 2 to 6 seats.");
-      const turnSeconds = Number(data.turnSeconds || 30);
-      if (![20, 30, 45, 60].includes(turnSeconds))
-        throw Error("Invalid turn duration.");
-      let id;
-      do {
-        id = crypto.randomBytes(3).toString("hex").toUpperCase();
-      } while (rooms.has(id));
-      const room = {
-        id,
-        hostId: seatId(socket),
-        roomName: String(data.roomName || `${name}'s Bluff Arena`)
-          .trim()
-          .slice(0, 32),
-        phase: "lobby",
-        players: [
-          {
-            id: seatId(socket),
-            name,
-            avatar: avatarFor(data.avatar),
-            ready: true,
-            isBot: false,
-          },
-        ],
-        hands: {},
-        pile: [],
-        discard: [],
-        lastMove: null,
-        roundRank: null,
-        roundNumber: 1,
-        currentTurnIndex: 0,
-        turnEndsAt: null,
-        pendingWinnerId: null,
-        winnerId: null,
-        mode: ai ? "ai" : "multiplayer",
-        maxPlayers,
-        turnSeconds,
-        password:
-          typeof data.password === "string" ? data.password.slice(0, 64) : "",
-        botTimer: null,
-        lastResult: null,
-      };
-      if (ai)
-        for (let i = 0; i < botCount; i++)
-          room.players.push({
-            id: `BOT_${crypto.randomUUID()}`,
-            name: BOT_NAMES[i],
-            avatar: [0, 1, 2, 3, 4][i],
-            isBot: true,
-            ready: true,
+          Object.defineProperty(data, REQUEST_FP, {
+            value: originalFingerprint,
           });
-      rooms.set(id, room);
-      bindSeat(room, socket, room.players[0]);
-      broadcast(room);
-    }
-    on("create_room", (d) => create(d, false));
-    on("create_ai_room", (d) => create(d, true));
-    on("join_room", (d) => {
-      assertUnseated(socket);
-      const room = rooms.get(
-        String(d.roomId || "")
-          .trim()
-          .toUpperCase(),
-      );
-      if (!room) throw Error("Room not found. Check the code.");
-      if (room.mode === "ai") throw Error("This is an AI practice table.");
-      if (room.phase !== "lobby")
-        throw Error("This match has already started.");
-      if (room.players.length >= room.maxPlayers)
-        throw Error("This table is full.");
-      if (room.password && d.password !== room.password)
-        throw Error("Incorrect room password.");
-      room.players.push({
-        id: seatId(socket),
-        name: nameFor(d.name),
-        avatar: avatarFor(d.avatar),
-        ready: false,
-        isBot: false,
-      });
-      bindSeat(room, socket, room.players.at(-1));
-      broadcast(room);
-    });
-    on("set_ready", (d) => {
-      const room = roomFor(socket, d.roomId);
-      if (room.phase !== "lobby") throw Error("The match has already started.");
-      room.players.find((p) => p.id === seatId(socket)).ready = Boolean(
-        d.ready,
-      );
-      broadcast(room);
-    });
-    for (const event of ["start_game", "restart_game"])
-      on(event, (d) => {
-        const room = roomFor(socket, d.roomId);
-        if (room.hostId !== seatId(socket))
-          throw Error("Only the host can deal.");
-        if (event === "start_game" && room.phase !== "lobby")
-          throw Error("This match has already started.");
-        if (event === "restart_game" && room.phase !== "finished")
-          throw Error("Finish this match before starting a rematch.");
-        if (
-          room.pause ||
-          room.players.some((p) => !p.isBot && p.connected === false)
-        )
-          throw Error(
-            "Wait for offline players to reconnect or leave the table.",
-          );
-        if (room.players.length < 2)
-          throw Error("At least two players are needed.");
-        if (event === "start_game" && room.players.some((p) => !p.ready))
-          throw Error("Wait for every player to ready up.");
-        startGame(room, createDeck());
-        notify(room);
-      });
-    on("play_cards", (d) => {
-      const room = roomFor(socket, d.roomId);
-      notify(room, applyPlay(room, seatId(socket), d.cardIds, d.declaredRank));
-    });
-    on("pass_bluff", (d) => {
-      const room = roomFor(socket, d.roomId);
-      notify(room, applyPass(room, seatId(socket)));
-    });
-    on("call_bluff", (d) => {
-      const room = roomFor(socket, d.roomId);
-      if (d.claimTs !== undefined && d.claimTs !== room.lastMove?.ts)
-        throw Error("That claim has closed. Review the latest move.");
-      notify(room, applyChallenge(room, seatId(socket), d.selectedIndexes));
-    });
-    on("continue_round", (d) => {
-      const room = roomFor(socket, d.roomId);
-      if (seatId(socket) !== room.hostId)
-        throw Error("The host starts the next round.");
-      if (room.pause) throw Error("The table is paused for a reconnect.");
-      if (room.phase !== "round_result")
-        throw Error("There is no round result to continue.");
-      nextRound(room);
-      notify(room);
-    });
-    on("update_profile", (d) => {
-      const name = nameFor(d.name),
-        avatar = avatarFor(d.avatar);
-      for (const room of rooms.values()) {
-        const player = room.players.find((p) => p.id === seatId(socket));
-        if (player) {
-          player.name = name;
-          player.avatar = avatar;
-          broadcast(room);
+          if (
+            !RULES.admissionsOpen &&
+            ["create_room", "create_ai_room", "join_room"].includes(event)
+          )
+            throw error(
+              "ROOM_MAINTENANCE",
+              "New tables and joins are temporarily paused. Existing players can reconnect.",
+            );
+          if (
+            process.env.PLAYTEST_INVITE_ONLY === "true" &&
+            ["create_room", "create_ai_room", "join_room"].includes(event)
+          )
+            checkInvitation(
+              await auth.sessionFromCookie(socket.handshake.headers.cookie),
+            );
+          const response = await handler(data, roomId);
+          if (typeof ack === "function") ack(response);
+          else socket.emit("action_ack", response);
+        } catch (e) {
+          const response = safeError(e, data?.actionId);
+          metrics.add("rejectedActions");
+          if (response.code === "STORAGE_UNAVAILABLE")
+            metrics.add("storageErrors");
+          if (response.code === "STORAGE_UNAVAILABLE")
+            socket.emit("storage_status", { available: false });
+          socket.emit("action_error", response);
+          if (typeof ack === "function") ack(response);
+          if (
+            ["STALE_TURN", "INVALID_CLAIM", "ACTION_EXPIRED"].includes(
+              response.code,
+            )
+          ) {
+            const room = service.rooms.get(socket.data.roomId);
+            if (room) delivery.full(socket, room);
+          }
+        } finally {
+          metrics.end("actionMs", actionStarted);
+          metrics.add("actions");
+          activeRequests--;
         }
-      }
-      socket.emit("profile_saved", { name, avatar });
+      });
+    const setupReceipts = new Map();
+    on("sync_room", async (data, code) => {
+      const room = service.rooms.get(code);
+      if (!room) throw error("ROOM_NOT_FOUND", "Table unavailable.");
+      service.seat(room, actorFor(socket));
+      delivery.full(socket, room);
+      return { ok: true, version: room.version };
     });
-    on("leave_room", () => leave(socket));
-    on("send_chat", (d) => {
-      const room = roomFor(socket, d.roomId);
-      if (typeof d.text !== "string" || !d.text.trim()) return;
-      const now = Date.now();
-      if (now - (socket.data.lastChatAt || 0) < 700) return;
-      socket.data.lastChatAt = now;
-      const p = room.players.find((p) => p.id === seatId(socket));
-      io.to(room.id).emit("chat_message", {
-        id: crypto.randomUUID(),
+    for (const event of ["create_room", "create_ai_room"])
+      on(event, async (data) => {
+        const key = data.actionId,
+          fp = fingerprint(event, data),
+          prior = setupReceipts.get(key);
+        if (prior) {
+          if (prior.fp !== fp)
+            throw error("DUPLICATE_ACTION", "Setup ID reused.");
+          return { ...prior.result, duplicate: true };
+        }
+        const result = await service.queue(
+          "identity:" + (socket.data.accountId || socket.data.playerId),
+          () =>
+            service.create(actorFor(socket), data, event === "create_ai_room"),
+        );
+        if (!result.duplicate) bind(socket, result);
+        setupReceipts.set(key, { fp, result });
+        if (setupReceipts.size > RULES.actionCache)
+          setupReceipts.delete(setupReceipts.keys().next().value);
+        return result;
+      });
+    on("join_room", async (data, code) => {
+      const result = await service.queue(
+        "identity:" + (socket.data.accountId || socket.data.playerId),
+        () => service.join(code, actorFor(socket), data),
+      );
+      if (!result.duplicate) bind(socket, result);
+      return result;
+    });
+    for (const event of MUTATIONS)
+      on(event, async (data, code) => {
+        if (!socket.data.roomId && event === "update_profile") {
+          if (
+            typeof data.name !== "string" ||
+            !data.name.trim() ||
+            !Number.isInteger(data.avatar) ||
+            data.avatar < 0 ||
+            data.avatar > 5
+          )
+            throw error("INVALID_PAYLOAD", "Invalid profile.");
+          socket.emit("profile_saved", {
+            name: data.name.trim().slice(0, 20),
+            avatar: data.avatar,
+            avatarId: data.avatarId || null,
+          });
+          return { ok: true, actionId: data.actionId };
+        }
+        const result = await service.command(
+          code,
+          actorFor(socket),
+          event,
+          data,
+        );
+        if (event === "leave_room" && !result.duplicate) {
+          socket.leave(code);
+          socket.data.roomId = null;
+          socket.emit("room_left");
+        }
+        return result;
+      });
+    on("send_chat", async (data, code) => {
+      limiter.consume("chat:" + socket.id, RULES.chatBurst, RULES.chatRefill);
+      const room = service.rooms.get(code);
+      if (!room) throw error("ROOM_NOT_FOUND", "Room not found.");
+      const p = service.seat(room, actorFor(socket));
+      if (typeof data.text !== "string" || !data.text.trim())
+        throw error("INVALID_PAYLOAD", "Empty chat message.");
+      io.to(code).emit("chat_message", {
+        id: data.actionId,
         name: p.name,
         avatar: p.avatar,
-        text: d.text.trim().slice(0, 280),
-        ts: now,
+        avatarId: p.avatarId || null,
+        text: data.text.trim().slice(0, 280),
+        ts: Date.now(),
       });
+      const result = { ok: true, actionId: data.actionId };
+      setupReceipts.set(data.actionId, {
+        fp: fingerprint("send_chat", data),
+        result,
+      });
+      if (setupReceipts.size > RULES.actionCache)
+        setupReceipts.delete(setupReceipts.keys().next().value);
+      return result;
     });
-    socket.on("disconnect", () => disconnect(socket));
-  });
-  const timer = setInterval(() => {
-    for (const room of [...rooms.values()]) {
-      if (processPresence(room)) {
-        broadcast(room);
-        scheduleBot(room);
-      }
-      if (room.closed) continue;
+    socket.onAny((event, data, ack) => {
       if (
-        room.phase === "playing" &&
-        !room.pause &&
-        room.turnEndsAt &&
-        Date.now() >= room.turnEndsAt
-      ) {
-        try {
-          const player = room.players[room.currentTurnIndex];
-          if (room.lastMove) notify(room, applyPass(room, player.id));
-          else {
-            room.currentTurnIndex =
-              (room.currentTurnIndex + 1) % room.players.length;
-            room.turnEndsAt = Date.now() + room.turnSeconds * 1000;
-            notify(room, {
-              type: "pass",
-              message: `${player.name} ran out of time. Turn passed automatically.`,
-            });
-          }
-        } catch (error) {
-          console.error("Turn timeout:", error);
-        }
+        [
+          ...MUTATIONS,
+          "create_room",
+          "create_ai_room",
+          "join_room",
+          "send_chat",
+          "sync_room",
+          "voice_join",
+          "voice_leave",
+          "voice_mute",
+          "voice_signal",
+        ].includes(event)
+      )
+        return;
+      let response;
+      try {
+        limiter.consume("socket:" + socket.id);
+        response = {
+          ok: false,
+          code: "UNKNOWN_ACTION",
+          message: "Unsupported game event.",
+        };
+      } catch (e) {
+        response = safeError(e);
       }
-    }
-  }, 250);
-  server.listen(PORT, () =>
-    console.log(`BluffX server on http://localhost:${PORT}`),
-  );
-  async function shutdown() {
-    clearInterval(timer);
-    for (const room of rooms.values()) clearTimeout(room.botTimer);
+      socket.emit("action_error", response);
+      if (typeof ack === "function") ack(response);
+    });
+    voice.attach(socket);
+    socket.on("disconnect", () => {
+      if (!stopping && !socket.data.replaced && socket.data.roomId)
+        service
+          .disconnect(socket.data.roomId, actorFor(socket))
+          .catch(() => {});
+      limiter.entries.delete("socket:" + socket.id);
+      limiter.entries.delete("chat:" + socket.id);
+      for (const event of [
+        ...MUTATIONS,
+        "create_room",
+        "create_ai_room",
+        "join_room",
+        "send_chat",
+        "sync_room",
+      ])
+        limiter.entries.delete("event:" + socket.id + ":" + event);
+      socket.removeAllListeners();
+      socket.offAny();
+      socket.offAnyOutgoing();
+    });
+  });
+  ready = true;
+  scheduler = new DeadlineScheduler((code) => service.wake(code), {
+    now: () => service.now(),
+    concurrency: RULES.gamePoolSize,
+  });
+  service.onSchedule = (code, at, available) => {
+    scheduler.set(code, store.available ? at : null);
+    const before = storageNotices.get(code);
+    if (
+      (available === false && before !== false) ||
+      (available === true && before === false)
+    )
+      io.to(code).emit("storage_status", { available });
+    if (service.rooms.has(code)) storageNotices.set(code, available);
+    else storageNotices.delete(code);
+  };
+  for (const room of service.rooms.values())
+    scheduler.set(room.id, room.nextWakeAt);
+  store.onUnavailable = () => {
+    ready = false;
+    io.emit("action_error", {
+      ok: false,
+      code: "STORAGE_UNAVAILABLE",
+      message: "Reconnecting to saved tables after a storage interruption.",
+    });
+    for (const code of service.rooms.keys())
+      service.onSchedule(code, null, false);
+    requestRecovery();
+  };
+  if (!store.available) store.onUnavailable();
+  if (!production && metrics.enabled)
+    app.get("/debug/metrics", (req, res) => {
+      if (
+        !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(
+          req.socket.remoteAddress,
+        )
+      )
+        return res.sendStatus(403);
+      res.set("Cache-Control", "no-store").json(
+        metrics.report({
+          activeRooms: service.rooms.size,
+          connectedSockets: io.sockets.sockets.size,
+          scheduledRooms: scheduler.heap.length,
+          timerHandles: (scheduler.timer ? 1 : 0) + 1,
+          schedulerWakeups: scheduler.wakeups,
+        }),
+      );
+    });
+  const retention = setInterval(() => store.prune().catch(() => {}), 3600000);
+  retention.unref();
+  const sampledMetrics = production
+    ? setInterval(
+        () =>
+          console.log(
+            JSON.stringify({
+              event: "service_metrics",
+              build: BUILD,
+              ...metrics.report({
+                activeRooms: service.rooms.size,
+                connectedSockets: io.sockets.sockets.size,
+              }),
+            }),
+          ),
+        60000,
+      )
+    : null;
+  sampledMetrics?.unref();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, resolve);
+  });
+  console.log(`BluffX server on http://localhost:${server.address().port}`);
+  async function close() {
+    if (stopping) return;
+    stopping = true;
+    ready = false;
+    scheduler.close();
+    voice.close();
+    metrics.close();
+    clearInterval(retention);
+    clearInterval(sampledMetrics);
+    while (activeRequests)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    await service.drain();
+    delivery.views.clear();
+    storageNotices.clear();
+    limiter.entries.clear();
     io.close();
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
     await auth.close();
+    await store.close();
   }
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  return {
+    app,
+    server,
+    io,
+    service,
+    store,
+    close,
+    metrics,
+    scheduler,
+    recovery,
+  };
 }
-main().catch((error) => {
-  console.error("Server startup failed:", error.code || error.message);
-  process.exit(1);
-});
+if (require.main === module)
+  (() => {
+    const controller = new AbortController();
+    for (const sig of ["SIGTERM", "SIGINT"])
+      process.once(sig, () => controller.abort());
+    return require("./recovery").supervise(startServer, {
+      signal: controller.signal,
+      onRetry: (code) => console.error("Server recovery retry:", code),
+    });
+  })().catch((e) => {
+    console.error("Server startup failed:", e.code || e.message);
+    if (e.code === "MIGRATION_REQUIRED") console.error(e.message);
+    process.exit(1);
+  });
+module.exports = { startServer };

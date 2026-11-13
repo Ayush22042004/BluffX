@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { io } from "socket.io-client";
+import helper from "../../server/test/socket-client.cjs";
+const { io } = helper;
 const event = (s, name, check = () => true) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -15,7 +16,7 @@ const event = (s, name, check = () => true) =>
     }
     s.on(name, fn);
   });
-test("beta label and a guest's exact hand survive reload and closing/reopening a tab", async ({
+test("production UI and a guest's exact hand survive reload and closing/reopening a tab", async ({
   page,
   context,
 }) => {
@@ -27,8 +28,10 @@ test("beta label and a guest's exact hand survive reload and closing/reopening a
     );
   });
   await page.goto("/");
-  await expect(page.locator(".release-banner")).toContainText("BETA");
-  await expect(page.locator(".release-banner")).toContainText("0.2.0-beta.1");
+  await expect(page.locator(".release-banner")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText(
+    /beta|small glitches|development phase/i,
+  );
   await page.getByRole("button", { name: "Play with AI", exact: true }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
   await page

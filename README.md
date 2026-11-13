@@ -2,6 +2,10 @@
 
 Realtime multiplayer Bluff variant with selective challenge mechanics.
 
+## Version history
+
+See the [version history](docs/versions/README.md) and [complete beta version 2 implementation record](docs/versions/beta-v2.md) for implemented features, migrations, verification results, performance measurements and deployment status. Use the [version template](docs/versions/TEMPLATE.md) for each future update.
+
 ## What is unique here
 
 When a player calls bluff, they pick one or more positions from the facedown cards played in the previous move.
@@ -24,6 +28,8 @@ npm install
 npm --prefix server install
 npm --prefix client install
 ```
+
+Before startup, configure an isolated development PostgreSQL database and run `npm run db:migrate-games`. Do not run development against the deployed game database. See [reliability and recovery](docs/reliability-overhaul.md).
 
 ## 2) Run both server and client together
 
@@ -83,15 +89,15 @@ Client runs on `http://localhost:5173`.
 
 The neon lounge includes Home, My Profile, AI Setup, Create Room, Join Room, Pre-Game Lobby, the live table, round reveals, and final standings.
 
-- Sign in with email or Google, create an account, or continue as a guest. **My Profile** saves account names and avatars to the server; guest profiles and match counters stay in this browser.
+- Sign in with email or Google, create an account, or continue as a guest. **My Profile** saves account names and avatars to the server; guest profile preferences stay in this browser. Official match statistics come from PostgreSQL; guest and practice outcomes are unranked.
 - **Play with AI** supports **1?5 AI opponents**. Choose the count and turn duration before creating the table, then press **Start Match**.
 - **Create Room** configures a room name, 2?6 total seats, turn duration, and an optional password. Share the generated six-character code. Guests must ready up before the host starts.
 - **Show all cards** opens a grid for selecting larger hands; **Fan view** returns to the table layout.
 - On a final claim, remaining opponents must pass or challenge; they cannot play over it. All passes or a successful defense ends the game. A caught bluff returns the pile to the claimant.
-- Challenges and table passes pause on a round result. The host presses **Next Round** to continue. Timeouts count as passes when a claim is open.
+- Challenges and table passes pause on a round result. The next round starts automatically after ten seconds; the host can press **Next Round** earlier. Timeouts count as passes when a claim is open.
 - Final standings show the winner, remaining card counts, rematch, and return to menu.
 - Live room chat and a current-table leaderboard are included. Other players' hidden cards stay on the server.
-- A lost connection removes the seat. Rooms are held in server memory; restarting the server clears them.
+- A lost connection uses a cumulative grace budget, then temporary AI. Rooms, private hands, hashed resume tokens and deadlines recover from PostgreSQL after a restart.
 
 ## Checks
 
@@ -99,6 +105,8 @@ The neon lounge includes Home, My Profile, AI Setup, Create Room, Join Room, Pre
 npm test
 npm run build
 npm run test:e2e
+# Explicit isolated TEST_DATABASE_URL and TEST_DATABASE_HOST required:
+npm run test:postgres
 ```
 
 The browser tests use Google Chrome through Playwright and isolated local servers on ports 4020 and 5180. They cover profile persistence, AI setup, mobile layout, card play, a caught bluff, a final claim, the winner screen, rematch, tab recovery and offline/AI notices. Server tests cover game invariants, pause/AI/removal rules, and the live Socket.IO lifecycle.
@@ -123,6 +131,13 @@ Use `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, and a verified `MAIL_FROM` sender 
 
 Deploy the frontend to Vercel and the backend to Render using [docs/deployment.md](docs/deployment.md). Account data is stored in Neon PostgreSQL.
 
-## Beta 0.2.0-beta.1
+## Release 0.2.0
 
-The beta/version label appears before loading and at the top of the app. Offline players get a ten-second reconnect pause, then AI can control their seat for three completed rounds before removal. Returning restores the same seat and current hand. See [the offline rules and remaining game-logic priorities](docs/gameplay-beta.md).
+Loading, login, and gameplay use the production interface without prerelease banners. Offline players get a ten-second reconnect pause, then AI can control their seat for three completed rounds before removal. Returning restores the same seat and current hand. See [the current rules](docs/gameplay-beta.md), [responsive UI verification](docs/ui-audit.md), and [durability, security, tests, and deployment procedure](docs/reliability-overhaul.md).
+
+
+## AFK and performance in beta.2
+
+Connected players receive two AFK warnings, then temporary AI after a third missed eligible turn. **I'm Back ? Take Control** restores the current hand without resetting time. Disconnecting during AI control preserves its remaining allowance. Existing offline grace, round counting, deck conservation, results and secure reconnect rules remain covered by regression tests.
+
+See [the measured beta.2 report](docs/beta2-performance.md) for baseline/optimized latency, SQL calls, Socket.IO bytes, memory, test coverage and safe release steps. `npm run test:load` runs a local simulated-persistence load check; add `-- --postgres --rooms 3 --rounds 2` only with explicit isolated test-database configuration. `npm --prefix server run check:deployment` is now read-only by default and does not create live matches or accounts. No production deployment is automatic.

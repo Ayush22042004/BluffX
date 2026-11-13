@@ -5,7 +5,25 @@ const path = require("node:path");
 const { createDatabase } = require("./database");
 const { OAuth2Client } = require("google-auth-library");
 const { createMailer } = require("./mailer");
+const { installAvatars, validAvatarId } = require("./avatars");
+const { createRateIdentity } = require("./rate-identity");
 const scrypt = promisify(crypto.scrypt);
+let passwordJobs = 0;
+const passwordQueue = [];
+async function passwordWork(work) {
+  if (passwordJobs >= 2) {
+    if (passwordQueue.length >= 16)
+      throw fail(429, "Sign-in is busy. Try again in a moment.");
+    await new Promise((resolve) => passwordQueue.push(resolve));
+  } else passwordJobs++;
+  try {
+    return await work();
+  } finally {
+    const next = passwordQueue.shift();
+    if (next) next();
+    else passwordJobs--;
+  }
+}
 const COOKIE = "bluffx_session";
 const digest = (value) =>
   crypto.createHash("sha256").update(value).digest("hex");
@@ -26,18 +44,23 @@ const passwordOf = (value) => {
 };
 async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
-  return salt + ":" + (await scrypt(password, salt, 64)).toString("hex");
+  return (
+    salt +
+    ":" +
+    (await passwordWork(() => scrypt(password, salt, 64))).toString("hex")
+  );
 }
 async function checkPassword(password, stored) {
   const [salt, hash] = stored.split(":");
   return crypto.timingSafeEqual(
-    await scrypt(password, salt, 64),
+    await passwordWork(() => scrypt(password, salt, 64)),
     Buffer.from(hash, "hex"),
   );
 }
 async function createAuth({
   allowedOrigins,
   onRevoke = () => {},
+  onErase = async () => {},
   databaseUrl = process.env.DATABASE_URL,
   pool,
   outboxPath = process.env.MAIL_OUTBOX_PATH ||
@@ -64,13 +87,17 @@ async function createAuth({
     email: u.email,
     name: u.name,
     avatar: u.avatar,
+    avatarId: u.avatar_id || null,
     emailVerified: Boolean(u.email_verified),
     hasPassword: Boolean(u.password_hash),
     googleConnected: Boolean(u.google_sub),
     tutorialStatus: u.tutorial_status || "new",
   });
   const userById = async (id) =>
-    await db.get("SELECT * FROM users WHERE id=?", id);
+    await db.get(
+      "SELECT u.*,a.id AS avatar_id FROM users u LEFT JOIN player_avatars a ON a.user_id=u.id WHERE u.id=?",
+      id,
+    );
   async function sessionFromCookie(header = "") {
     const raw = header
       .split(";")
@@ -86,7 +113,7 @@ async function createAuth({
     );
     if (!session) return null;
     const user = await userById(session.user_id);
-    return user ? { user, hash } : null;
+    return user && !user.deleted_at ? { user, hash } : null;
   }
   const cookieOptions = {
     httpOnly: true,
@@ -113,13 +140,17 @@ async function createAuth({
       from: process.env.MAIL_FROM || "BluffX <no-reply@bluffx.local>",
       to: user.email,
       subject:
-        kind === "reset"
-          ? "Reset your BluffX password"
-          : "Verify your BluffX email",
+        kind === "delete"
+          ? "Confirm deletion of your BluffX account"
+          : kind === "reset"
+            ? "Reset your BluffX password"
+            : "Verify your BluffX email",
       text:
-        kind === "reset"
-          ? `Reset your BluffX password using this link (expires in 30 minutes):\n\n${link}\n\nIf you did not request this, ignore this email.`
-          : `Verify your BluffX email address using this link (expires in 24 hours):\n\n${link}\n\nIf you did not create this account, ignore this email.`,
+        kind === "delete"
+          ? `Confirm deletion of your BluffX account using this link (expires in 30 minutes):\n\n${link}\n\nThis removes your profile and anonymizes match records. If you did not request this, ignore this email.`
+          : kind === "reset"
+            ? `Reset your BluffX password using this link (expires in 30 minutes):\n\n${link}\n\nIf you did not request this, ignore this email.`
+            : `Verify your BluffX email address using this link (expires in 24 hours):\n\n${link}\n\nIf you did not create this account, ignore this email.`,
     };
     await emailService.send(message);
     // A failed delivery must not invalidate an earlier usable verification/reset link.
@@ -134,20 +165,38 @@ async function createAuth({
         digest(token),
         user.id,
         kind,
-        Date.now() + (kind === "reset" ? 30 * 60000 : 24 * 3600000),
+        Date.now() +
+          (["reset", "delete"].includes(kind) ? 30 * 60000 : 24 * 3600000),
       );
     });
   }
   const rate = new Map();
+  const browserIdentity = createRateIdentity();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
+    const browser = ["GET", "HEAD"].includes(req.method)
+      ? browserIdentity.ensure(req, res, cookieOptions)
+      : browserIdentity.read(req.headers.cookie) || "ip:" + req.ip;
     if (["GET", "HEAD"].includes(req.method)) return next();
     const requestOrigin = req.headers.origin;
     if (requestOrigin && !allowedOrigins?.has(requestOrigin))
       return res
         .status(403)
         .json({ message: "This request origin is not allowed." });
-    const key = req.ip + ":" + req.path,
+    const identity =
+      typeof req.body?.email === "string"
+        ? "email:" + digest(req.body.email.trim().toLowerCase())
+        : browser;
+    const coarseKey = "ip:" + req.ip,
+      coarse = rate.get(coarseKey),
+      timestamp = Date.now();
+    if (coarse?.until > timestamp && coarse.count++ >= 500)
+      return res
+        .status(429)
+        .json({ message: "Too many requests. Try again shortly." });
+    if (!coarse || coarse.until <= timestamp)
+      rate.set(coarseKey, { until: timestamp + 15 * 60000, count: 1 });
+    const key = identity + ":" + req.path,
       now = Date.now(),
       entry = rate.get(key);
     if (entry && entry.until > now) {
@@ -173,8 +222,20 @@ async function createAuth({
     if (!session) throw fail(401, "Please sign in again.");
     return session;
   }
+  const avatars = installAvatars({
+    router,
+    route,
+    db,
+    sessionFromCookie,
+    cookieOptions,
+  });
   route("get", "/config", (_req, res) =>
-    res.json({ googleClientId, emailDelivery: mailMode }),
+    res.json({
+      googleClientId,
+      emailDelivery: mailMode,
+      playtestUnranked: process.env.PLAYTEST_UNRANKED === "true",
+      rankedPairDailyLimit: require("./rules").RULES.rankedPairDailyLimit,
+    }),
   );
   route("get", "/session", async (req, res) => {
     const s = await sessionFromCookie(req.headers.cookie);
@@ -188,6 +249,17 @@ async function createAuth({
           ? req.body.name.trim().slice(0, 20)
           : "";
     if (!name) throw fail(400, "Enter your player name.");
+    if (
+      process.env.PLAYTEST_INVITE_ONLY === "true" &&
+      !(process.env.PLAYTEST_ALLOWED_EMAILS || "")
+        .split(",")
+        .map((v) => v.trim().toLowerCase())
+        .includes(emailAddress)
+    )
+      throw fail(
+        403,
+        "This playtest is currently limited to invited accounts.",
+      );
     if (await db.get("SELECT id FROM users WHERE email=?", emailAddress))
       throw fail(
         409,
@@ -244,7 +316,7 @@ async function createAuth({
     if (!user || !user.password_hash || !valid)
       throw fail(401, "Email or password is incorrect.");
     await newSession(res, user);
-    res.json({ user: publicUser(user) });
+    res.json({ user: publicUser(await userById(user.id)) });
   });
   route("post", "/google", async (req, res) => {
     if (!googleClientId)
@@ -295,7 +367,7 @@ async function createAuth({
       user = await userById(id);
     }
     await newSession(res, user);
-    res.json({ user: publicUser(user) });
+    res.json({ user: publicUser(await userById(user.id)) });
   });
   route("post", "/logout", async (req, res) => {
     const s = await sessionFromCookie(req.headers.cookie);
@@ -327,12 +399,25 @@ async function createAuth({
       avatar = req.body.avatar;
     if (!name || !Number.isInteger(avatar) || avatar < 0 || avatar > 5)
       throw fail(400, "Choose a name and a valid avatar.");
-    await db.run(
-      "UPDATE users SET name=?,avatar=? WHERE id=?",
-      name,
-      avatar,
-      user.id,
-    );
+    if (!validAvatarId(req.body.avatarId)) throw fail(400, "Invalid avatar.");
+    if (req.body.avatarId) {
+      const owned = await db.get(
+        "SELECT id FROM player_avatars WHERE id=? AND user_id=?",
+        req.body.avatarId,
+        user.id,
+      );
+      if (!owned) throw fail(400, "Upload your own avatar first.");
+    }
+    await db.transaction(async (tx) => {
+      if (!req.body.avatarId && Object.hasOwn(req.body, "avatarId"))
+        await avatars.clearUser(user.id, tx);
+      await tx.run(
+        "UPDATE users SET name=?,avatar=? WHERE id=?",
+        name,
+        avatar,
+        user.id,
+      );
+    });
     res.json({ user: publicUser(await userById(user.id)) });
   });
   route("post", "/forgot-password", async (req, res) => {
@@ -375,6 +460,69 @@ async function createAuth({
       );
     return row;
   }
+  let erasing = false;
+  async function processErasures() {
+    if (erasing) return;
+    erasing = true;
+    try {
+      const rows = await db.run(
+        "SELECT user_id FROM account_erasure ORDER BY requested_at LIMIT 10",
+      );
+      for (const row of rows.rows) {
+        await onErase(row.user_id);
+        await db.transaction(async (tx) => {
+          await tx.run("DELETE FROM sessions WHERE user_id=?", row.user_id);
+          await tx.run("DELETE FROM tokens WHERE user_id=?", row.user_id);
+          await avatars.clearUser(row.user_id, tx);
+          await tx.run("DELETE FROM users WHERE id=?", row.user_id);
+          await tx.run(
+            "DELETE FROM account_erasure WHERE user_id=?",
+            row.user_id,
+          );
+        });
+      }
+    } finally {
+      erasing = false;
+    }
+  }
+  route("post", "/request-account-deletion", async (req, res) => {
+    const session = await requireUser(req);
+    await email(session.user, "delete");
+    res.json({
+      ok: true,
+      message: "Check your email to confirm account deletion.",
+    });
+  });
+  route("post", "/confirm-account-deletion", async (req, res) => {
+    const id = await db.transaction(async (tx) => {
+      const row = await tokenFor(req.body.token, "delete", tx, true);
+      await tx.run(
+        "INSERT INTO account_erasure(user_id,requested_at) VALUES(?,?) ON CONFLICT(user_id) DO NOTHING",
+        row.user_id,
+        Date.now(),
+      );
+      await tx.run(
+        "UPDATE users SET email=?,name='Deleted player',password_hash=NULL,google_sub=NULL,email_verified=0,deleted_at=? WHERE id=?",
+        `deleted-${row.user_id}@invalid`,
+        Date.now(),
+        row.user_id,
+      );
+      await tx.run("DELETE FROM sessions WHERE user_id=?", row.user_id);
+      await tx.run("DELETE FROM tokens WHERE user_id=?", row.user_id);
+      await avatars.clearUser(row.user_id, tx);
+      return row.user_id;
+    });
+    onRevoke(id);
+    res.clearCookie(COOKIE, cookieOptions);
+    await processErasures().catch((e) =>
+      console.error("Account erasure queued:", e.code || e.name),
+    );
+    res.json({
+      ok: true,
+      message:
+        "Your account has been removed. Any remaining historical anonymization will finish automatically.",
+    });
+  });
   route("post", "/reset-password", async (req, res) => {
     passwordOf(req.body.password);
     await tokenFor(req.body.token, "reset");
@@ -418,24 +566,41 @@ async function createAuth({
         : "Something went wrong. Please try again.",
     });
   });
+  let lastAvatarCleanup = 0;
   const cleanup = setInterval(async () => {
     try {
       const now = Date.now();
       await db.run("DELETE FROM sessions WHERE expires_at<?", now);
       await db.run("DELETE FROM tokens WHERE expires_at<?", now);
+      await processErasures();
+      await db.run(
+        "DELETE FROM bx_reports WHERE created_at<?",
+        now - 30 * 86400000,
+      );
+      if (now - lastAvatarCleanup > 3600000) {
+        await db.run(
+          "DELETE FROM player_avatars WHERE user_id IS NULL AND created_at<?",
+          now - 30 * 86400000,
+        );
+        lastAvatarCleanup = now;
+      }
       for (const [key, v] of rate) if (v.until < now) rate.delete(key);
     } catch (error) {
       console.error("Auth cleanup failed:", error.code || error.name);
     }
   }, 60000);
   cleanup.unref();
+  await processErasures();
   return {
     router,
     sessionFromCookie,
     publicUser,
     userById,
+    database: db,
+    rateIdentity: (header) => browserIdentity.read(header),
     async close() {
       clearInterval(cleanup);
+      avatars.close();
       await db.close();
     },
   };

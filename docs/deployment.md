@@ -1,6 +1,10 @@
 # Deploy BluffX on Render and Vercel
 
-The GitHub repository is https://github.com/Ayush22042004/BluffX. Account data is already in Neon PostgreSQL. Keep a single backend instance: live rooms and turn timers are in memory.
+Custom avatars require additive migration `003_player_avatars.sql` before starting the updated backend. See [avatars and clockwise seating](avatars-and-seating.md) for storage limits, verification, and release instructions.
+
+Table Voice uses the existing Socket.IO proxy for signaling and WebRTC for audio. See [voice connectivity and optional TURN configuration](voice-chat.md) before testing players on different networks. No additional database migration is required for voice.
+
+The GitHub repository is https://github.com/Ayush22042004/BluffX. Accounts and durable game snapshots/results use Neon PostgreSQL. Keep a single backend instance; a direct PostgreSQL ownership lock rejects additional owners. Before deploying this reliability release, follow the [migration and maintenance handoff procedure](reliability-overhaul.md#release-procedure-and-limitations). Stop the old backend before starting its replacement. The new code and database migrations have not been deployed automatically.
 
 The frontend is deployed at **https://bluffx.vercel.app** and the backend at **https://bluffx.onrender.com**. Vercel's production `VITE_SERVER_URL` is **https://bluffx.vercel.app**: authentication and Socket.IO requests use same-origin reverse-proxy routes to Render. This lets browsers keep the HttpOnly session cookie even when third-party cookies are blocked. Production sockets use HTTP polling through the proxy; local development can upgrade to WebSockets. The backend health endpoint, browser login, session persistence after reload, authenticated AI table creation, and card dealing were verified against the live deployments on 2026-11-12. The temporary verification account was removed and no email was sent. Resend is configured, but actual mail delivery and Google OAuth consent were not exercised by this check.
 
@@ -24,6 +28,7 @@ Set these environment variables on Render, never in client code:
 | `NODE_ENV` | `production` |
 | `DATABASE_URL` | Neon pooled URL from ignored root `.env.local` |
 | `DATABASE_URL_UNPOOLED` | Neon direct URL from that file |
+| `GAME_AUTO_MIGRATE` | `false`; run the reviewed `npm run db:migrate-games` explicitly before starting |
 | `APP_ORIGIN` | The final Vercel frontend origin, with no trailing slash |
 | `CLIENT_ORIGIN` | The same frontend origin; comma-separated exact origins if needed |
 | `SESSION_COOKIE_SAME_SITE` | `none` for separate Vercel/Render domains; `lax` for same-site custom domains |
@@ -66,7 +71,9 @@ Verify your owned sending domain's DNS records in Resend, set `MAIL_FROM` to an 
 5. Request verification and password-reset emails and confirm their links point to the Vercel frontend.
 6. Sign in with Google after authorizing the frontend origin.
 
-Run `npm --prefix server run check:deployment` to verify real deployed login, session restoration, and game creation with Chrome's third-party cookies explicitly blocked. This command creates a temporary verified account directly in the configured Neon database, sends no email, and removes its account and sessions afterward. It requires development dependencies installed in `client` and the deployed app's Neon credentials loaded locally.
+Run `npm --prefix server run check:deployment` for read-only production health, frontend and proxy checks. It creates no account, session or match. The former account-creating check is available only with `DEPLOYMENT_CHECK_MODE=isolated`, an explicit local `DEPLOYMENT_FRONTEND_URL`, and the isolated `TEST_DATABASE_URL` / `TEST_DATABASE_HOST` guard. Full login, AFK, reconnect and gameplay checks run through `npm run test:e2e` on 4020/5180. See [beta.2 performance and deployment notes](beta2-performance.md).
+
+Default connection caps are `GAME_POOL_SIZE=4`, `AUTH_POOL_SIZE=2`, plus one direct owner connection. Public debug metrics are disabled in production; production diagnostics use sampled logs and the authenticated operator endpoint. `GAME_FINISHED_MEMORY_MS=300000` closes completed tables after five minutes, retaining official results in Neon. Existing active schema-1 snapshots normalize controller state without redealing or resetting deadlines. The current release requires migrations 001–004, including avatar storage and launch controls. See the [closed playtest release runbook](playtest-release.md) for required operator secrets, invitations, TURN settings, maintenance handoff and rollback limits.
 
 Do not commit `.env` files, Neon links, mail previews, SQLite backups, or deployment credentials. `.gitignore` excludes these paths.
 

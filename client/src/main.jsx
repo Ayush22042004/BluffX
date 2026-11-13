@@ -2,8 +2,12 @@ import React, { Component, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AuthProvider } from "./auth";
-import ReleaseBanner from "./ReleaseBanner";
 import "./index.css";
+import { reportDiagnostic } from "./lib/diagnostics";
+window.addEventListener("error", () => reportDiagnostic("WINDOW_ERROR"));
+window.addEventListener("unhandledrejection", () =>
+  reportDiagnostic("UNHANDLED_REJECTION"),
+);
 
 class RootErrorBoundary extends Component {
   constructor(props) {
@@ -19,6 +23,7 @@ class RootErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
+    reportDiagnostic("CLIENT_RENDER_ERROR");
     // Keep details in dev console for debugging while showing a friendly fallback in UI.
     // eslint-disable-next-line no-console
     console.error("Root render failure", error, info);
@@ -35,16 +40,13 @@ class RootErrorBoundary extends Component {
             padding: "24px",
           }}
         >
-          <h1 style={{ margin: 0, fontSize: "28px" }}>BluffX failed to load</h1>
+          <h1 style={{ margin: 0, fontSize: "28px" }}>Let’s reconnect.</h1>
           <p style={{ marginTop: "10px", opacity: 0.9 }}>
-            Frontend hit an error. Hard refresh the page. If it persists,
-            restart client and server.
+            Reload the page to return to your table.
           </p>
-          <pre
-            style={{ marginTop: "14px", whiteSpace: "pre-wrap", opacity: 0.85 }}
-          >
-            {this.state.message}
-          </pre>
+          <button onClick={() => window.location.reload()}>
+            Reload BluffX
+          </button>
         </div>
       );
     }
@@ -55,7 +57,6 @@ class RootErrorBoundary extends Component {
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <ReleaseBanner />
     <RootErrorBoundary>
       <AuthProvider>
         <App />
