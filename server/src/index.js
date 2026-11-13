@@ -247,7 +247,34 @@ async function startServer({
     io.close();
     throw e;
   }
-  app.use("/auth", auth.router);
+  app.use(
+    "/auth",
+    (req, res, next) => {
+      if (!/^\/(?:social|history|achievements|season)(?:\/|$)/.test(req.path))
+        return next();
+      try {
+        // Bound new read routes before session/database work. Shared proxy IPs get
+        // a generous coarse budget; signed browser identities isolate normal use.
+        limiter.consume("records:ip:" + req.ip, 300, 5);
+        limiter.consume(
+          "records:browser:" +
+            (auth.rateIdentity(req.headers.cookie) || req.ip),
+          30,
+          1,
+        );
+        next();
+      } catch (e) {
+        res
+          .status(429)
+          .json({
+            code: "RATE_LIMITED",
+            message: "Player records are busy. Try again shortly.",
+            retryAfterMs: e.retryAfterMs || 1000,
+          });
+      }
+    },
+    auth.router,
+  );
   require("./history").installHistory({ app, auth, store });
   app.get("/health", (_req, res) =>
     res
