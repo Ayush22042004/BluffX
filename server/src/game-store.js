@@ -275,7 +275,7 @@ class GameStore {
     const results = finalResults(room),
       ranked = !!results[0]?.ranked;
     const updated = await client.query(
-      "UPDATE bx_matches SET finalized=TRUE,completed_at=$2,rounds=$3,winner_id=$4,outcome_reason=$5,ranked=$6 WHERE match_id=$1 AND finalized=FALSE RETURNING match_id",
+      "UPDATE bx_matches SET finalized=TRUE,completed_at=$2,rounds=$3,winner_id=$4,outcome_reason=$5,ranked=$6,summary=$7 WHERE match_id=$1 AND finalized=FALSE RETURNING match_id",
       [
         room.matchId,
         now,
@@ -283,49 +283,47 @@ class GameStore {
         room.winnerId || null,
         room.abandoned ? "abandoned" : room.winReason || "cards",
         ranked,
+        room.insights
+          ? JSON.stringify(
+              (({ players, awards, ...aggregate }) => aggregate)(
+                require("./match-insights").summary(room),
+              ),
+            )
+          : null,
       ],
     );
     if (!updated.rowCount) return;
-    for (const r of results) {
-      const inserted = await client.query(
-        "INSERT INTO bx_results(match_id,player_id,user_id,placement,won,forfeit,ai_assisted,ranked,score,calls,correct_calls,outcome_reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING RETURNING player_id",
-        [
-          room.matchId,
-          r.playerId,
-          r.userId,
-          r.placement,
-          r.won,
-          r.forfeit,
-          r.aiAssisted,
-          r.ranked,
-          r.score,
-          r.calls,
-          r.correct,
-          r.reason,
-        ],
-      );
-      if (!r.userId || !inserted.rowCount) continue;
-      await client.query(
-        `INSERT INTO bx_player_stats(user_id,games,wins,losses,forfeits,ai_assisted,unranked_games,calls,correct_calls,updated_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(user_id) DO UPDATE SET
-        games=bx_player_stats.games+EXCLUDED.games,wins=bx_player_stats.wins+EXCLUDED.wins,losses=bx_player_stats.losses+EXCLUDED.losses,
-        forfeits=bx_player_stats.forfeits+EXCLUDED.forfeits,ai_assisted=bx_player_stats.ai_assisted+EXCLUDED.ai_assisted,
-        unranked_games=bx_player_stats.unranked_games+EXCLUDED.unranked_games,calls=bx_player_stats.calls+EXCLUDED.calls,
-        correct_calls=bx_player_stats.correct_calls+EXCLUDED.correct_calls,updated_at=EXCLUDED.updated_at`,
-        [
-          r.userId,
-          r.ranked ? 1 : 0,
-          r.ranked && r.won ? 1 : 0,
-          r.ranked && !r.won ? 1 : 0,
-          r.forfeit ? 1 : 0,
-          r.aiAssisted ? 1 : 0,
-          r.ranked ? 0 : 1,
-          r.calls,
-          r.correct,
-          now,
-        ],
-      );
-    }
+    const resultRows = results.map((r) => ({
+      player_id: r.playerId,
+      user_id: r.userId,
+      placement: r.placement,
+      won: r.won,
+      forfeit: r.forfeit,
+      ai_assisted: r.aiAssisted,
+      ranked: r.ranked,
+      score: r.score,
+      calls: r.calls,
+      correct_calls: r.correct,
+      outcome_reason: r.reason,
+    }));
+    await client.query(
+      `WITH inserted AS (
+      INSERT INTO bx_results(match_id,player_id,user_id,placement,won,forfeit,ai_assisted,ranked,score,calls,correct_calls,outcome_reason)
+      SELECT $1,p.player_id,p.user_id,p.placement,p.won,p.forfeit,p.ai_assisted,p.ranked,p.score,p.calls,p.correct_calls,p.outcome_reason
+      FROM jsonb_to_recordset($2::jsonb) AS p(player_id text,user_id text,placement integer,won boolean,forfeit boolean,ai_assisted boolean,ranked boolean,score integer,calls integer,correct_calls integer,outcome_reason text)
+      ON CONFLICT DO NOTHING RETURNING user_id,ranked,won,forfeit,ai_assisted,calls,correct_calls
+    ) INSERT INTO bx_player_stats(user_id,games,wins,losses,forfeits,ai_assisted,unranked_games,calls,correct_calls,updated_at)
+      SELECT user_id,CASE WHEN ranked THEN 1 ELSE 0 END,CASE WHEN ranked AND won THEN 1 ELSE 0 END,
+        CASE WHEN ranked AND NOT won THEN 1 ELSE 0 END,CASE WHEN forfeit THEN 1 ELSE 0 END,
+        CASE WHEN ai_assisted THEN 1 ELSE 0 END,CASE WHEN ranked THEN 0 ELSE 1 END,calls,correct_calls,$3
+      FROM inserted WHERE user_id IS NOT NULL
+      ON CONFLICT(user_id) DO UPDATE SET games=bx_player_stats.games+EXCLUDED.games,wins=bx_player_stats.wins+EXCLUDED.wins,
+        losses=bx_player_stats.losses+EXCLUDED.losses,forfeits=bx_player_stats.forfeits+EXCLUDED.forfeits,
+        ai_assisted=bx_player_stats.ai_assisted+EXCLUDED.ai_assisted,unranked_games=bx_player_stats.unranked_games+EXCLUDED.unranked_games,
+        calls=bx_player_stats.calls+EXCLUDED.calls,correct_calls=bx_player_stats.correct_calls+EXCLUDED.correct_calls,updated_at=EXCLUDED.updated_at`,
+      [room.matchId, JSON.stringify(resultRows), now],
+    );
+    await require("./progression").unlock(client, room, results, now);
   }
   async rankingPolicy(client, room, now) {
     const old = (

@@ -59,6 +59,8 @@ async function checkPassword(password, stored) {
 }
 async function createAuth({
   allowedOrigins,
+  service,
+  notifySocial,
   onRevoke = () => {},
   onErase = async () => {},
   databaseUrl = process.env.DATABASE_URL,
@@ -222,6 +224,14 @@ async function createAuth({
     if (!session) throw fail(401, "Please sign in again.");
     return session;
   }
+  if (service)
+    require("./social").installSocial({
+      route,
+      requireUser,
+      db,
+      service,
+      notify: notifySocial,
+    });
   const avatars = installAvatars({
     router,
     route,
@@ -573,6 +583,8 @@ async function createAuth({
       await db.run("DELETE FROM sessions WHERE expires_at<?", now);
       await db.run("DELETE FROM tokens WHERE expires_at<?", now);
       await processErasures();
+      if (service)
+        await db.run("DELETE FROM bx_invites WHERE expires_at<?", Date.now());
       await db.run(
         "DELETE FROM bx_reports WHERE created_at<?",
         now - 30 * 86400000,

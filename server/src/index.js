@@ -23,6 +23,9 @@ const BUILD = `${RELEASE}:${(process.env.RENDER_GIT_COMMIT || process.env.BUILD_
 const { installLaunch, checkInvitation } = require("./launch-controls");
 const MUTATIONS = [
   "set_ready",
+  "prepare_rematch",
+  "request_rematch",
+  "update_settings",
   "start_game",
   "restart_game",
   "play_cards",
@@ -77,7 +80,9 @@ async function startServer({
   if (production)
     for (const key of ["OPS_API_TOKEN", "RATE_IDENTITY_SECRET"])
       if ((process.env[key] || "").length < 32)
-        throw Error(`${key} must contain at least 32 characters in production.`);
+        throw Error(
+          `${key} must contain at least 32 characters in production.`,
+        );
   if (
     process.env.PLAYTEST_INVITE_ONLY === "true" &&
     !process.env.PLAYTEST_ALLOWED_EMAILS?.trim()
@@ -208,6 +213,11 @@ async function startServer({
     await service.initialize();
     auth = await createAuth({
       allowedOrigins: allowed,
+      service,
+      notifySocial: (id) => {
+        for (const s of io.sockets.sockets.values())
+          if (s.data.accountId === id) s.emit("social_updated");
+      },
       onErase: (id) => service.eraseAccount(id),
       onRevoke: (id, sessionHash) => {
         for (const socket of io.sockets.sockets.values())
@@ -238,6 +248,7 @@ async function startServer({
     throw e;
   }
   app.use("/auth", auth.router);
+  require("./history").installHistory({ app, auth, store });
   app.get("/health", (_req, res) =>
     res
       .status(ready && store.available ? 200 : 503)

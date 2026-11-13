@@ -90,33 +90,56 @@ test("socket lifecycle: AI counts, validation, profile, password, ready, win, re
     a.emit("start_game", { roomId: code });
     state = await next;
     const matchId = state.matchId;
-    const hostSeat=state.you.id;
-    while(state.hand.length){
-      const last=state.hand.length<=4;
-      next=event(b,"room_state",s=>s.lastMove?.playerId===hostSeat);
-      a.emit("play_cards",{roomId:code,cardIds:state.hand.slice(0,4).map(c=>c.id),declaredRank:"J"});
-      const peerState=await next;assert.equal(peerState.lastMove.cards,undefined);
-      if(last){
-        next=event(b,"action_error");b.emit("play_cards",{roomId:code,cardIds:[peerState.hand[0].id],declaredRank:"J"});assert.match((await next).message,/Final claim/);
+    const hostSeat = state.you.id;
+    while (state.hand.length) {
+      const last = state.hand.length <= 4;
+      next = event(b, "room_state", (s) => s.lastMove?.playerId === hostSeat);
+      a.emit("play_cards", {
+        roomId: code,
+        cardIds: state.hand.slice(0, 4).map((c) => c.id),
+        declaredRank: "J",
+      });
+      const peerState = await next;
+      assert.equal(peerState.lastMove.cards, undefined);
+      if (last) {
+        next = event(b, "action_error");
+        b.emit("play_cards", {
+          roomId: code,
+          cardIds: [peerState.hand[0].id],
+          declaredRank: "J",
+        });
+        assert.match((await next).message, /Final claim/);
       }
-      next=event(a,"room_state",s=>s.phase===(last?"finished":"round_result"));b.emit("pass_bluff",{roomId:code});state=await next;
-      if(!last){next=event(a,"room_state",s=>s.phase==="playing");a.emit("continue_round",{roomId:code});state=await next;}
+      next = event(
+        a,
+        "room_state",
+        (s) => s.phase === (last ? "finished" : "round_result"),
+      );
+      b.emit("pass_bluff", { roomId: code });
+      state = await next;
+      if (!last) {
+        next = event(a, "room_state", (s) => s.phase === "playing");
+        a.emit("continue_round", { roomId: code });
+        state = await next;
+      }
     }
-    assert.equal(state.winnerId,hostSeat);
+    assert.equal(state.winnerId, hostSeat);
     assert.equal(state.hand.length, 0);
     assert.equal(state.turnEndsAt, null);
     next = event(a, "room_state", (s) => s.phase === "lobby");
     a.emit("restart_game", { roomId: code });
-    await next;
-    next = event(a,"room_state",s=>s.players.every(p=>p.ready));
-    const firstReady=event(a,"room_state",s=>s.you.ready);
-    a.emit("set_ready",{roomId:code,ready:true});
+    state = await next;
+    assert.equal(state.you.ready, true);
+    assert.equal(state.players.find((p) => p.id !== state.you.id).ready, false);
+    next = event(a, "room_state", (s) => s.players.every((p) => p.ready));
+    const firstReady = event(a, "room_state", (s) => s.you.ready);
+    a.emit("set_ready", { roomId: code, ready: true });
     await firstReady;
-    b.emit("set_ready",{roomId:code,ready:true});
+    b.emit("set_ready", { roomId: code, ready: true });
     await next;
-    next=event(a,"room_state",s=>s.phase==="playing");
-    a.emit("start_game",{roomId:code});
-    state=await next;
+    next = event(a, "room_state", (s) => s.phase === "playing");
+    a.emit("start_game", { roomId: code });
+    state = await next;
     assert.notEqual(state.matchId, matchId);
     assert.equal(state.hand.length, 26);
     const chat = event(a, "chat_message");

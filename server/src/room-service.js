@@ -449,6 +449,9 @@ class RoomService {
               seat.graceStartedAt = now;
             }
           }
+          // Older clients have no host-ready control: their explicit rematch click
+          // confirms only the host, never the other participating humans.
+          if (event === "restart_game") p.ready = true;
           break;
         case "update_settings":
           if (p.id !== r.hostId)

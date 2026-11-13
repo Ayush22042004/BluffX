@@ -34,6 +34,7 @@ CREATE INDEX IF NOT EXISTS tokens_user_kind_idx ON tokens(user_id, kind);
 CREATE INDEX IF NOT EXISTS tokens_expiry_idx ON tokens(expires_at);
 ${AVATAR_SCHEMA}
 ${LAUNCH_SCHEMA}
+${require("node:fs").readFileSync(require("node:path").join(__dirname, "../migrations/005_social_and_insights.sql"), "utf8").split("ALTER TABLE bx_matches")[0]}
 `;
 
 // SQL here is application-owned; values always travel separately as parameters.
