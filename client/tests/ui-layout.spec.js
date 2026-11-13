@@ -151,7 +151,7 @@ test("lobby and six-player game panels remain complete at every breakpoint", asy
   }
 });
 
-test("production login stays inside the viewport without prerelease messaging", async ({
+test("production login stays inside the viewport with a compact beta version label", async ({
   page,
 }) => {
   for (const width of sizes) {
@@ -163,7 +163,7 @@ test("production login stays inside the viewport without prerelease messaging", 
         .getByRole("button", { name: "Sign In", exact: true }),
     ).toBeVisible();
     await expect(page.locator("body")).not.toContainText(
-      /beta|small glitches|development phase/i,
+      /small glitches|development phase/i,
     );
     await inspect(page, "login", width);
   }

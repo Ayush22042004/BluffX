@@ -4,6 +4,7 @@ Each update gets its own document in this directory. Record implemented behavior
 
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
+| `v0.3.0` UI follow-up | `0.3.0` | Setup polish, compact beta label and desktop fullscreen recommendation; local only | [UI update record](v0.3.0-ui-polish.md) |
 | `v0.3.0` multiplayer/social release | `0.3.0` | Local implementation and verification; not deployed | [Implementation and limitations](v0.3.0.md) |
 | Beta version 2 / `v0.2.0-beta.2` development cycle | `0.2.0` | Implemented and locally verified; production rollout pending as of 2026-11-13 | [Complete implementation record](beta-v2.md) |
 

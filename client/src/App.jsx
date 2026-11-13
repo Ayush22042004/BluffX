@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { socket, sendGameAction } from "./lib/socket";
 import TutorialGame from "./TutorialGame";
 import VoiceChat from "./VoiceChat";
+import { BetaVersion } from "./DisplayHints";
 import Community from "./Community";
 import Preferences, { readPreferences, applyPreferences } from "./Preferences";
 import { BUILD, PrivacyInfo, ReportProblem } from "./LaunchTools";
@@ -860,6 +861,7 @@ export default function App() {
             height="42"
           />
           Bluff<span>X</span>
+          <BetaVersion />
         </button>
         <nav>
           <button
@@ -1079,20 +1081,20 @@ export default function App() {
                     />
                     <small className="field-hint">
                       {deckCount * 52} cards.{" "}
-                      {maxPlayers >= 6
+                      {(screen === "ai" ? botCount + 1 : maxPlayers) >= 6
                         ? "Two decks recommended for six or more seats."
                         : "One deck recommended for smaller tables."}{" "}
                       Your choice stays in effect.
                     </small>
                   </Field>
                   <Field label="Table voice">
-                    <label>
+                    <label className="voice-toggle">
                       <input
                         type="checkbox"
                         checked={voiceEnabled}
                         onChange={(e) => setVoiceEnabled(e.target.checked)}
                       />{" "}
-                      Allow optional voice chat
+                      <span><strong>Allow optional voice chat</strong><small>Players choose when to join and turn on their mic.</small></span>
                     </label>
                   </Field>
                   {screen === "ai" && (

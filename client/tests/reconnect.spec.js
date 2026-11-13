@@ -30,7 +30,7 @@ test("production UI and a guest's exact hand survive reload and closing/reopenin
   await page.goto("/");
   await expect(page.locator(".release-banner")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText(
-    /beta|small glitches|development phase/i,
+    /small glitches|development phase/i,
   );
   await page.getByRole("button", { name: "Play with AI", exact: true }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
