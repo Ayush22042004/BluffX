@@ -164,6 +164,7 @@ test("Friends & Records switches safely between social, history, achievements an
   await page.route("**/auth/social/recent", (route) =>
     route.fulfill({ json: { players: [] } }),
   );
+  await page.route("**/auth/social/card",route=>route.fulfill({json:{handle:"0123456789abcdef",name:"Social UI",incoming_requests:0,incoming_invites:0}}));
   await page.goto("/");
   await page
     .getByRole("button", { name: "Create Account", exact: true })
@@ -191,7 +192,7 @@ test("Friends & Records switches safely between social, history, achievements an
     .getByRole("button", { name: "Friends & Records", exact: true })
     .click();
   await expect(
-    page.getByText("0123456789abcdef", { exact: true }),
+    page.getByLabel("Your player code", { exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Match history", exact: true })

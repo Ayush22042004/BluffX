@@ -3,6 +3,7 @@ import { socket, sendGameAction } from "./lib/socket";
 import TutorialGame from "./TutorialGame";
 import VoiceChat from "./VoiceChat";
 import { BetaVersion } from "./DisplayHints";
+import { formatPlayerCode } from "./lib/player-code";
 import Community from "./Community";
 import Preferences, { readPreferences, applyPreferences } from "./Preferences";
 import { BUILD, PrivacyInfo, ReportProblem } from "./LaunchTools";
@@ -47,6 +48,19 @@ export default function App() {
   } = useAuth();
   useEffect(() => applyPreferences(readPreferences()), []);
   const [socialRevision, setSocialRevision] = useState(0);
+  const [playerCard, setPlayerCard] = useState(null);
+  const [seenSocialRevision, setSeenSocialRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setPlayerCard(null);
+    if (account?.id)
+      authRequest("social/card", undefined, "GET")
+        .then((d) => active && setPlayerCard(d))
+        .catch(() => active && setPlayerCard({ unavailable: true }));
+    return () => {
+      active = false;
+    };
+  }, [account?.id, socialRevision]);
   useEffect(() => {
     const fn = () => setSocialRevision((n) => n + 1);
     socket.on("social_updated", fn);
@@ -138,6 +152,43 @@ export default function App() {
   useEffect(() => {
     refreshStats();
   }, [account?.id]);
+  useEffect(() => {
+    if (["community", "records"].includes(modal))
+      setSeenSocialRevision(socialRevision);
+  }, [modal, socialRevision]);
+  useEffect(() => {
+    if (!["community", "records"].includes(modal)) return;
+    const previous = document.activeElement,
+      panel = document.querySelector(".social-drawer");
+    panel?.querySelector(".close")?.focus();
+    const key = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setModal(null);
+        return;
+      }
+      if (e.key !== "Tab" || !panel) return;
+      const controls = [
+        ...panel.querySelectorAll(
+          "button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href]",
+        ),
+      ];
+      const first = controls[0],
+        last = controls.at(-1);
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("keydown", key);
+      previous?.focus();
+    };
+  }, [modal]);
   useEffect(() => {
     if (modal === "scores")
       authRequest(`leaderboard?page=${leaders.page}&limit=20`, undefined, "GET")
@@ -667,6 +718,29 @@ export default function App() {
             <small>
               {stats.games} games · {stats.wins} wins
             </small>
+            {account && (
+              <button
+                className="profile-player-code"
+                aria-label="Copy your player code"
+                disabled={!playerCard?.handle}
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(formatPlayerCode(playerCard.handle))
+                    .then(() => setError("Player code copied."))
+                    .catch(() => setError(formatPlayerCode(playerCard.handle)))
+                }
+              >
+                <small>PLAYER CODE</small>
+                <code>
+                  {playerCard?.handle
+                    ? formatPlayerCode(playerCard.handle)
+                    : playerCard?.unavailable
+                      ? "Unavailable"
+                      : "Loading..."}
+                </code>
+                <Icon name="copy" size={12} />
+              </button>
+            )}
           </div>
         </div>
         <div className="side-nav">
@@ -904,6 +978,52 @@ export default function App() {
           <span>⌄</span>
         </button>
       </header>
+      <aside className="utility-rail" aria-label="Social and account tools">
+        <small className="utility-label">YOUR CLUB</small>
+        <button
+          className={`utility-friends ${modal === "community" ? "active" : ""}`}
+          aria-label="Friends & Records"
+          onClick={() => {
+            setSeenSocialRevision(socialRevision);
+            setModal("community");
+          }}
+        >
+          <Icon name="users" />
+          <span>Friends</span>
+          {((socialRevision > seenSocialRevision && modal !== "community") ||
+            Number(playerCard?.incoming_requests) > 0 ||
+            Number(playerCard?.incoming_invites) > 0) && (
+            <i aria-label="New social updates" />
+          )}
+        </button>
+        <button
+          aria-label="Open match history"
+          onClick={() => setModal("records")}
+        >
+          <Icon name="trophy" />
+          <span>Records</span>
+        </button>
+        <div className="utility-divider" />
+        <button
+          aria-label="Preferences"
+          onClick={() => setModal("preferences")}
+        >
+          <Icon name="settings" />
+          <span>Settings</span>
+        </button>
+        <button
+          aria-label="Report a problem"
+          onClick={() => setModal("report")}
+        >
+          <Icon name="chat" />
+          <span>Support</span>
+        </button>
+        <button aria-label="Privacy" onClick={() => setModal("privacy")}>
+          <Icon name="lock" />
+          <span>Privacy</span>
+        </button>
+      </aside>
+
       {state &&
         (!connected ||
           syncing ||
@@ -1094,7 +1214,12 @@ export default function App() {
                         checked={voiceEnabled}
                         onChange={(e) => setVoiceEnabled(e.target.checked)}
                       />{" "}
-                      <span><strong>Allow optional voice chat</strong><small>Players choose when to join and turn on their mic.</small></span>
+                      <span>
+                        <strong>Allow optional voice chat</strong>
+                        <small>
+                          Players choose when to join and turn on their mic.
+                        </small>
+                      </span>
                     </label>
                   </Field>
                   {screen === "ai" && (
@@ -1726,14 +1851,6 @@ export default function App() {
       )}
       <footer>
         <div className="footer-tools">
-          <button onClick={() => setModal("report")}>Report a problem</button>
-          <button onClick={() => setModal("privacy")}>Privacy</button>
-          <button onClick={() => setModal("preferences")}>Preferences</button>
-          {account && (
-            <button onClick={() => setModal("community")}>
-              Friends & Records
-            </button>
-          )}
           <small>Build {BUILD}</small>
         </div>
         <span>♧ BLUFFX SOCIAL CLUB</span>
@@ -1754,13 +1871,13 @@ export default function App() {
       )}
       {modal && (
         <div
-          className="modal-backdrop"
+          className={`modal-backdrop ${["community", "records"].includes(modal) ? "social-backdrop" : ""}`}
           onClick={() => {
             if (!["tutorial", "tutorial-offer"].includes(modal)) closeModal();
           }}
         >
           <section
-            className={`panel modal ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""}`}
+            className={`panel modal ${["community", "records"].includes(modal) ? "social-drawer" : ""} ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-label={
@@ -1828,22 +1945,50 @@ export default function App() {
                   <button className="primary">Save table settings</button>
                 </form>
               </section>
-            ) : modal === "community" ? (
-              <Community
-                revision={socialRevision}
-                roomId={state?.roomId}
-                onInvite={(room) => {
-                  if (state) {
-                    setError(
-                      "Leave your current table before joining another.",
-                    );
-                    return;
-                  }
-                  setCode(room);
-                  setScreen("join");
-                  setModal(null);
-                }}
-              />
+            ) : ["community", "records"].includes(modal) ? (
+              !account ? (
+                <section className="social-signin">
+                  <Icon name="users" size={40} />
+                  <h2>Your friends. Your table.</h2>
+                  <p>
+                    Sign in to get your own Player Code, send friend requests
+                    and see your match records.
+                  </p>
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      if (state) {
+                        setError("Leave your current table before signing in.");
+                        return;
+                      }
+                      setModal(null);
+                      openLogin();
+                    }}
+                  >
+                    Sign in to connect
+                  </button>
+                </section>
+              ) : (
+                <Community
+                  key={modal}
+                  initial={modal === "records" ? "history" : "friends"}
+                  playerName={account.name}
+                  playerCode={playerCard?.handle}
+                  revision={socialRevision}
+                  roomId={state?.roomId}
+                  onInvite={(room) => {
+                    if (state) {
+                      setError(
+                        "Leave your current table before joining another.",
+                      );
+                      return;
+                    }
+                    setCode(room);
+                    setScreen("join");
+                    setModal(null);
+                  }}
+                />
+              )
             ) : modal === "preferences" ? (
               <Preferences />
             ) : modal === "report" ? (

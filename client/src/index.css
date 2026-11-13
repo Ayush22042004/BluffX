@@ -8247,7 +8247,7 @@ html[data-reduce-motion="true"] *::after {
   height: 30px;
   min-width: 30px;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1450px) {
   .table.large-table {
     margin-top: 205px;
   }
@@ -8329,3 +8329,47 @@ html[data-reduce-motion="true"] *::after {
 .setup-fields .start-button { order: 11; }
 .setup-fields .mode-choice { min-height: 46px; padding: 8px 12px; }
 .setup-fields .mode-choice > svg { width: 24px; height: 24px; }
+.utility-rail { position: fixed; top: 108px; right: 8px; width: 72px; z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 5px; border: 1px solid #653652; border-radius: 14px; background: #180d1df5; box-shadow: 0 8px 24px #0005; }
+.utility-label { font-size: 8px; letter-spacing: .08em; text-align: center; color: #ac8faf; margin-bottom: 5px; }
+.utility-rail button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 63px; position: relative; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #c9b3ce; padding: 9px 3px; cursor: pointer; }
+.utility-rail button span { font-size: 10px; line-height: 1.2; font-weight: 600; }
+.utility-rail button:hover, .utility-rail button:focus-visible { background: #4f2149; color: white; }
+.utility-rail .utility-friends { background: #80225966; border-color: #c7499466; color: #ffd1ef; }
+.utility-rail button i { position: absolute; right: 7px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: #ffb863; box-shadow: 0 0 0 3px #341526; }
+.utility-divider { height: 1px; background: #614059; margin: 5px; }
+.app > main, .app > footer { margin-right: 88px; }
+.profile-player-code { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #eed4ec; padding: 7px 0 0; background: transparent; border: 0; cursor: pointer; text-align: left; max-width: 100%; }
+.profile-player-code small { width: 100%; font-size: 8px !important; letter-spacing: .1em; color: #bca5c1; }
+.profile-player-code code { font-size: 9px; overflow-wrap: anywhere; }
+.social-backdrop { justify-content: flex-end !important; align-items: stretch !important; padding: 0 !important; }
+.social-backdrop .social-drawer { width: min(580px,100vw); max-width: 580px; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 18px 0 0 18px; padding: 30px 24px; background: #170d20fc; overflow-y: auto; }
+.social-drawer .community h2 { margin-top: 4px; padding-right: 30px; }
+.social-drawer .community nav { gap: 6px; padding-bottom: 14px; border-bottom: 1px solid #57314f; }
+.social-drawer .community nav button { font-size: 11px; padding: 10px; min-height: 40px; }
+.player-identity-card { padding: 18px; border: 1px solid #b54c8a80; border-radius: 12px; background: linear-gradient(120deg,#51203f80,#24132f); margin: 16px 0 24px; }
+.player-identity-card > small { color: #d6a0cc; font-size: 9px; letter-spacing: .13em; }
+.player-identity-card h3 { font-size: 21px; margin: 7px 0 14px; }
+.player-identity-card > div { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.player-identity-card code { font-size: 16px; letter-spacing: .05em; color: #ffe0a5; user-select: all; overflow-wrap: anywhere; }
+.player-identity-card button { padding: 9px 12px; font-size: 11px; }
+.player-identity-card p, .social-help { font-size: 12px; line-height: 1.6; color: #baa5c4; }
+.social-drawer .community form { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 24px; }
+.social-drawer .community form label { flex: 1; font-size: 12px; }
+.social-drawer .community form input { margin-top: 8px; padding: 12px; background: #211129; border: 1px solid #754766; border-radius: 8px; color: white; font: 13px monospace; }
+.social-drawer .community form button { min-height: 43px; }
+.friend-player-code { display: block; font-size: 11px; color: #d9b9df; margin: 4px 0; }
+.social-signin { padding: 50px 8px; }
+.social-signin > svg { color: #ef8fce; }
+.social-signin p { line-height: 1.7; color: #c8b5d0; }
+@media(max-width:1100px) {
+  .app > main, .app > footer { margin-right: 0; }
+  .utility-rail { top: 0; right: auto; position: sticky; width: auto; margin: 10px 12px 0; flex-direction: row; padding: 5px; gap: 3px; border-radius: 10px; }
+  .utility-rail button { flex: 1; min-width: 0; min-height: 52px; padding: 6px 3px; }
+  .utility-label, .utility-divider { display: none; }
+  .utility-rail button span { font-size: 9px; }
+  .social-backdrop .social-drawer { border-radius: 0; padding: 28px 16px; }
+}
+.modal-backdrop { z-index: 200; }
+.social-backdrop, .social-backdrop .social-drawer { backdrop-filter: none; }
+.social-drawer .preference-row { display: flex; align-items: center; gap: 12px; color: #e6d7ed; font-size: 12px; line-height: 1.5; }
+.social-drawer .preference-row input[type=checkbox] { width: 18px; min-width: 18px; height: 18px; margin: 0; padding: 0; accent-color: #e348ac; }

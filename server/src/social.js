@@ -2,10 +2,14 @@ const crypto = require("node:crypto");
 const invalid = (message, status = 400) =>
   Object.assign(Error(message), { status });
 const rows = async (db, sql, ...args) => (await db.run(sql, ...args)).rows;
+const normalizePlayerCode = (value) =>
+  typeof value === "string" && value.length <= 32
+    ? value.replace(/[\s-]/g, "").toLowerCase()
+    : "";
 function installSocial({ route, requireUser, db, service, notify = () => {} }) {
-  async function me(req) {
+  async function me(req, verified = true) {
     const s = await requireUser(req);
-    if (!s.user.email_verified)
+    if (verified && !s.user.email_verified)
       throw invalid("Verify your email to use social features.", 403);
     await db.run(
       "INSERT INTO bx_social_profiles(user_id,handle) VALUES(?,?) ON CONFLICT(user_id) DO NOTHING",
@@ -15,8 +19,9 @@ function installSocial({ route, requireUser, db, service, notify = () => {} }) {
     return s.user.id;
   }
   async function target(handle) {
+    handle = normalizePlayerCode(handle);
     if (typeof handle !== "string" || !/^[a-f0-9]{16}$/.test(handle))
-      throw invalid("Use the exact public player identifier.");
+      throw invalid("Enter the player's exact player code.");
     const p = await db.get(
       "SELECT p.user_id FROM bx_social_profiles p JOIN users u ON u.id=p.user_id WHERE p.handle=? AND u.email_verified=1 AND u.deleted_at IS NULL",
       handle,
@@ -42,6 +47,18 @@ function installSocial({ route, requireUser, db, service, notify = () => {} }) {
       a,
     );
   const publicFields = "p.handle,u.name,u.avatar";
+  route("get", "/social/card", async (req, res) => {
+    const id = await me(req, false);
+    res.json(
+      await db.get(
+        "SELECT p.handle,u.name,(SELECT COUNT(*) FROM bx_friends WHERE recipient=? AND status='pending') AS incoming_requests,(SELECT COUNT(*) FROM bx_invites WHERE recipient=? AND expires_at>?) AS incoming_invites FROM bx_social_profiles p JOIN users u ON u.id=p.user_id WHERE p.user_id=?",
+        id,
+        id,
+        Date.now(),
+        id,
+      ),
+    );
+  });
   route("get", "/social", async (req, res) => {
     const id = await me(req),
       profile = await db.get(
@@ -76,7 +93,7 @@ function installSocial({ route, requireUser, db, service, notify = () => {} }) {
   });
   route("get", "/social/search", async (req, res) => {
     const id = await me(req),
-      handle = String(req.query.handle || "");
+      handle = normalizePlayerCode(req.query.handle);
     if (!/^[a-f0-9]{16}$/.test(handle)) return res.json({ players: [] });
     res.json({
       players: await rows(
@@ -218,6 +235,7 @@ function installSocial({ route, requireUser, db, service, notify = () => {} }) {
     });
     if (["request", "accept", "decline", "remove"].includes(action))
       notify(other);
+    notify(id);
     res.json({ ok: true });
   });
   route("post", "/social/invite", async (req, res) => {

@@ -33,7 +33,7 @@ export default function DisplayHints() {
   if (!visible) return null;
   const mac = /Mac/.test(navigator.platform);
   return (
-    <aside className="fullscreen-tip" role="status" aria-live="polite">
+    <aside className="fullscreen-tip" role="note" aria-live="polite">
       <span className="fullscreen-tip-icon" aria-hidden="true">
         ⛶
       </span>

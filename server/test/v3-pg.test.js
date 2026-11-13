@@ -59,10 +59,36 @@ test(
         assert.ok(!JSON.stringify(r.data).includes(user.id));
       }
       const [a, b, c] = users;
+      assert.equal(new Set(users.map((u) => u.handle)).size, 3);
+      for (const user of users) {
+        const card = await call(user, "social/card");
+        assert.equal(card.status, 200);
+        assert.equal(card.data.handle, user.handle);
+        assert.ok(!JSON.stringify(card.data).includes(user.id));
+        assert.equal(
+          (await call(user, "social/card")).data.handle,
+          user.handle,
+        );
+      }
+      await store.pool.query("UPDATE users SET email_verified=0 WHERE id=$1", [
+        c.id,
+      ]);
+      assert.equal((await call(c, "social/card")).data.handle, c.handle);
+      assert.equal((await call(c, "social")).status, 403);
+      await store.pool.query("UPDATE users SET email_verified=1 WHERE id=$1", [
+        c.id,
+      ]);
+      const formattedB = b.handle
+        .toUpperCase()
+        .match(/.{1,4}/g)
+        .join("-");
+      const search = await call(a, "social/search?handle=" + formattedB);
+      assert.equal(search.status, 200);
+      assert.equal(search.data.players[0].handle, b.handle);
       assert.equal(
         (
           await call(a, "social/action", {
-            handle: b.handle,
+            handle: formattedB,
             action: "request",
           })
         ).status,

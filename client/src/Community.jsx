@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { authRequest } from "./auth";
+import { formatPlayerCode, normalizePlayerCode } from "./lib/player-code";
 export default function Community({
   roomId,
+  playerName = "Your player profile",
+  playerCode,
   onInvite,
   initial = "friends",
   revision = 0,
@@ -11,14 +14,14 @@ export default function Community({
     [handle, setHandle] = useState(""),
     [found, setFound] = useState([]),
     [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
     [page, setPage] = useState(0),
     [busy, setBusy] = useState(false);
-  const endpoint =
-    tab === "friends"
-      ? "social"
-      : tab === "recent"
-        ? "social/recent"
-        : `${tab}?page=${page}`;
+  const endpoint = ["friends", "requests"].includes(tab)
+    ? "social"
+    : tab === "recent"
+      ? "social/recent"
+      : `${tab}?page=${page}`;
   const activeEndpoint = useRef(endpoint);
   activeEndpoint.current = endpoint;
   const load = () =>
@@ -42,9 +45,17 @@ export default function Community({
     if (busy) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await authRequest(path, body);
       await load();
+      setNotice(
+        body.action === "request"
+          ? "Friend request sent. View Requests to track it."
+          : body.action === "accept"
+            ? "Friend added to your circle."
+            : "Updated.",
+      );
     } catch (e) {
       setError(e.message);
     } finally {
@@ -66,6 +77,7 @@ export default function Community({
       <nav aria-label="Player records">
         {[
           ["friends", "Friends"],
+          ["requests", "Requests"],
           ["recent", "Recent players"],
           ["history", "Match history"],
           ["achievements", "Achievements"],
@@ -84,18 +96,54 @@ export default function Community({
           </button>
         ))}
       </nav>
+      {["friends", "requests"].includes(tab) &&
+        (playerCode || data?.profile?.handle) && (
+          <div className="player-identity-card">
+            <small>YOUR PLAYER IDENTITY</small>
+            <h3>{playerName}</h3>
+            <div>
+              <code aria-label="Your player code">
+                {formatPlayerCode(playerCode || data.profile.handle)}
+              </code>
+              <button
+                className="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      formatPlayerCode(playerCode || data.profile.handle),
+                    );
+                    setNotice("Player code copied.");
+                  } catch {
+                    setError(
+                      "Copy unavailable. Select your Player Code to share it.",
+                    );
+                  }
+                }}
+              >
+                Copy Player Code
+              </button>
+            </div>
+            <p>Share your name and Player Code. Your email stays private.</p>
+          </div>
+        )}
       {error && <p role="alert">{error}</p>}
+      {notice && <p role="status">{notice}</p>}
       {!data ? (
-        <p>Loading player records...</p>
-      ) : tab === "friends" ? (
+        error ? (
+          <button
+            className="secondary"
+            onClick={() => {
+              setError("");
+              load();
+            }}
+          >
+            Try again
+          </button>
+        ) : (
+          <p>Loading player records...</p>
+        )
+      ) : ["friends", "requests"].includes(tab) ? (
         <>
-          <p>
-            Your public identifier: <strong>{data.profile.handle}</strong>
-          </p>
-          <small>
-            Share this identifier to receive requests. Email addresses stay
-            private.
-          </small>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -103,7 +151,7 @@ export default function Community({
                 setFound(
                   (
                     await authRequest(
-                      `social/search?handle=${encodeURIComponent(handle)}`,
+                      `social/search?handle=${encodeURIComponent(normalizePlayerCode(handle))}`,
                       undefined,
                       "GET",
                     )
@@ -115,12 +163,13 @@ export default function Community({
             }}
           >
             <label>
-              Find a player by exact identifier
+              Add a friend by Player Code
               <input
-                aria-label="Public player identifier"
+                aria-label="Player Code"
                 value={handle}
-                maxLength={16}
-                onChange={(e) => setHandle(e.target.value.trim().toLowerCase())}
+                maxLength={19}
+                placeholder="ABCD-1234-EF56-7890"
+                onChange={(e) => setHandle(e.target.value.toUpperCase())}
               />
             </label>
             <button className="secondary">Search</button>
@@ -128,60 +177,94 @@ export default function Community({
           {found.map((p) => (
             <div className="social-row" key={p.handle}>
               <span>
-                {p.name} · {p.handle}
+                {p.name} · {formatPlayerCode(p.handle)}
               </span>
-              {button("Send request", "social/action", {
-                handle: p.handle,
-                action: "request",
-              })}
+              {data.players.some(
+                (x) => x.handle === p.handle && x.status === "accepted",
+              ) ? (
+                <button className="secondary" disabled>
+                  Already friends
+                </button>
+              ) : data.players.some(
+                  (x) => x.handle === p.handle && x.status === "pending",
+                ) ? (
+                <button className="secondary" disabled>
+                  Request pending
+                </button>
+              ) : (
+                button("Send request", "social/action", {
+                  handle: p.handle,
+                  action: "request",
+                })
+              )}
             </div>
           ))}
-          <h3>Friends and requests</h3>
-          {!data.players.length && (
-            <p>No friends yet. Share your identifier to get started.</p>
+          <h3>{tab === "requests" ? "Friend requests" : "Your friends"}</h3>
+          <p className="social-help">
+            Check the player name and code before accepting a request.
+          </p>
+          {!data.players.some((p) =>
+            tab === "requests"
+              ? p.status === "pending"
+              : p.status === "accepted",
+          ) && (
+            <p>
+              {tab === "requests"
+                ? "No pending requests. Send a request using a Player Code above."
+                : "Your circle starts here. Add a friend using their Player Code."}
+            </p>
           )}
-          {data.players.map((p) => (
-            <div className="social-row" key={p.handle}>
-              <span>
-                <strong>{p.name}</strong>
-                <small>
-                  {p.status === "accepted"
-                    ? "Friend"
-                    : p.incoming
-                      ? "Incoming request"
-                      : "Request sent"}
-                </small>
-              </span>
-              {p.status === "pending" && p.incoming ? (
-                <>
-                  {button("Accept", "social/action", {
-                    handle: p.handle,
-                    action: "accept",
-                  })}
-                  {button("Decline", "social/action", {
-                    handle: p.handle,
-                    action: "decline",
-                  })}
-                </>
-              ) : p.status === "accepted" ? (
-                <>
-                  {roomId &&
-                    button("Invite to table", "social/invite", {
+          {data.players
+            .filter((p) =>
+              tab === "requests"
+                ? p.status === "pending"
+                : p.status === "accepted",
+            )
+            .map((p) => (
+              <div className="social-row" key={p.handle}>
+                <span>
+                  <strong>{p.name}</strong>
+                  <code className="friend-player-code">
+                    {formatPlayerCode(p.handle)}
+                  </code>
+                  <small>
+                    {p.status === "accepted"
+                      ? "Friend"
+                      : p.incoming
+                        ? "Incoming request"
+                        : "Request sent"}
+                  </small>
+                </span>
+                {p.status === "pending" && p.incoming ? (
+                  <>
+                    {button("Accept", "social/action", {
                       handle: p.handle,
-                      roomId,
+                      action: "accept",
                     })}
-                  {button("Remove friend", "social/action", {
-                    handle: p.handle,
-                    action: "remove",
-                  })}
-                </>
-              ) : null}
-              {button("Block", "social/action", {
-                handle: p.handle,
-                action: "block",
-              })}
-            </div>
-          ))}
+                    {button("Decline", "social/action", {
+                      handle: p.handle,
+                      action: "decline",
+                    })}
+                  </>
+                ) : p.status === "accepted" ? (
+                  <>
+                    {roomId &&
+                      button("Invite to table", "social/invite", {
+                        handle: p.handle,
+                        roomId,
+                      })}
+                    {button("Remove friend", "social/action", {
+                      handle: p.handle,
+                      action: "remove",
+                    })}
+                  </>
+                ) : null}
+                {button("Block", "social/action", {
+                  handle: p.handle,
+                  action: "block",
+                })}
+              </div>
+            ))}
           <h3>Invitations</h3>
           {!data.invites.length && (
             <p>No invitations. Refresh when a friend sends one.</p>
@@ -326,7 +409,7 @@ export default function Community({
           ))}
         </>
       )}
-      {!["friends", "recent"].includes(tab) && (
+      {!["friends", "requests", "recent"].includes(tab) && (
         <div className="social-row">
           <button
             disabled={!page}
