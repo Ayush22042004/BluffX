@@ -8,6 +8,8 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
     const room = service.rooms.get(socket.data.roomId);
     if (!room || room.closed || !socket.connected)
       throw Error("Join a table first.");
+    if (room.voiceEnabled === false)
+      throw Error("Voice is disabled for this table.");
     const seat = service.seat(room, actorFor(socket));
     if (seat.isBot || seat.connected === false)
       throw Error("This seat cannot join voice.");

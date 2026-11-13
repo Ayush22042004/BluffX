@@ -16,11 +16,13 @@ const RANKS = [
   "Q",
   "K",
 ];
-function createDeck() {
+function createDeck(deckCount = 1) {
+  if (![1, 2].includes(deckCount)) throw Error("Choose one or two decks.");
   const deck = [];
-  for (const suit of ["S", "H", "D", "C"])
-    for (const rank of RANKS)
-      deck.push({ id: crypto.randomUUID(), rank, suit });
+  for (let copy = 0; copy < deckCount; copy++)
+    for (const suit of ["S", "H", "D", "C"])
+      for (const rank of RANKS)
+        deck.push({ id: crypto.randomUUID(), rank, suit });
   for (let i = deck.length - 1; i > 0; i--) {
     const j = crypto.randomInt(i + 1);
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -67,6 +69,7 @@ function startGame(r, deck, now = Date.now()) {
   Object.assign(r, {
     matchId: crypto.randomUUID(),
     phase: "playing",
+    rematchRequested: [],
     pile: [],
     discard: [],
     roundNumber: 1,
@@ -81,6 +84,21 @@ function startGame(r, deck, now = Date.now()) {
     pause: null,
     presenceEvents: [],
     startedAt: now,
+    completedAt: null,
+    insights: Object.fromEntries(
+      r.players.map((p) => [
+        p.id,
+        {
+          cardsPlayed: 0,
+          claims: 0,
+          challenges: 0,
+          challengesWon: 0,
+          challengesLost: 0,
+          unchallengedBluffs: 0,
+          caughtBluffing: 0,
+        },
+      ]),
+    ),
     roundId: crypto.randomUUID(),
     turnSequence: 1,
     claimSequence: 0,
@@ -150,6 +168,10 @@ function applyPlay(r, id, ids, rank, now = Date.now()) {
     throw Error("You can only play cards in your hand.");
   const selected = new Set(ids),
     cards = hand.filter((c) => selected.has(c.id));
+  if (r.insights?.[id]) {
+    r.insights[id].cardsPlayed += cards.length;
+    r.insights[id].claims++;
+  }
   r.hands[id] = hand.filter((c) => !selected.has(c.id));
   r.pile.push(...cards);
   r.roundRank = rank;
@@ -205,6 +227,11 @@ function applyPass(r, id, now = Date.now()) {
     throw Error("There is no claim you can pass.");
   claim.passedBy.push(id);
   if (claim.passedBy.length === r.players.length - 1) {
+    if (
+      r.insights?.[claim.playerId] &&
+      claim.cards.some((c) => c.rank !== claim.declaredRank)
+    )
+      r.insights[claim.playerId].unchallengedBluffs++;
     if (r.pendingWinnerId) {
       const winner = r.pendingWinnerId;
       finishGame(r, winner, now);
@@ -276,6 +303,12 @@ function applyChallenge(r, id, indexes, now = Date.now()) {
     revealCards,
     message: `${fake ? "Bluff caught!" : "The claim was true."} ${name(r, loserId)} picks up ${pileCount} card${pileCount === 1 ? "" : "s"}.`,
   };
+  if (r.insights?.[id]) {
+    r.insights[id].challenges++;
+    r.insights[id][fake ? "challengesWon" : "challengesLost"]++;
+  }
+  if (fake && r.insights?.[claim.playerId])
+    r.insights[claim.playerId].caughtBluffing++;
   const caller = r.players.find((p) => p.id === id);
   caller.calls = (caller.calls || 0) + 1;
   caller.correctCalls = (caller.correctCalls || 0) + (fake ? 1 : 0);
@@ -338,6 +371,7 @@ function publicState(r, id) {
       provisionalMs: (r.rules || RULES).provisionalMs,
     },
     matchScores: r.matchScores || {},
+    rematchRequests: r.rematchRequested || [],
     matchId: r.matchId,
     roomId: r.id,
     roomName: r.roomName,
@@ -399,6 +433,14 @@ function publicState(r, id) {
     mode: r.mode,
     maxPlayers: r.maxPlayers,
     turnSeconds: r.turnSeconds,
+    deckCount: r.deckCount || 1,
+    preset: r.preset || "custom",
+    voiceEnabled: r.voiceEnabled !== false,
+    aiStyle: r.aiStyle || "balanced",
+    matchSummary:
+      r.phase === "finished" && r.insights
+        ? require("./match-insights").summary(r)
+        : null,
     isPrivate: !!(r.passwordHash || r.password),
     lastResult: r.lastResult,
   };

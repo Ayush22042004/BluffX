@@ -14,16 +14,25 @@ function integrity(r) {
     r.schemaVersion !== 1 ||
     !Number.isSafeInteger(r.version) ||
     !Array.isArray(r.players) ||
-    r.players.length > 6 ||
+    r.players.length > 10 ||
     new Set(r.players.map((p) => p.id)).size !== r.players.length
   )
     throw error("CORRUPT_SNAPSHOT", "Invalid stored room metadata.");
   if (r.matchId) {
     const cards = [...Object.values(r.hands).flat(), ...r.pile, ...r.discard];
+    const deckCount = r.deckCount ?? 1;
+    const faces = new Map();
+    for (const c of cards)
+      faces.set(
+        c.rank + ":" + c.suit,
+        (faces.get(c.rank + ":" + c.suit) || 0) + 1,
+      );
     if (
-      cards.length !== 52 ||
-      new Set(cards.map((c) => c.id)).size !== 52 ||
-      new Set(cards.map((c) => c.rank + ":" + c.suit)).size !== 52 ||
+      ![1, 2].includes(deckCount) ||
+      cards.length !== 52 * deckCount ||
+      new Set(cards.map((c) => c.id)).size !== 52 * deckCount ||
+      faces.size !== 52 ||
+      [...faces.values()].some((n) => n !== deckCount) ||
       cards.some(
         (c) =>
           !["S", "H", "D", "C"].includes(c.suit) ||
@@ -71,10 +80,13 @@ function synchronize(r) {
 }
 function botChoice(r, p, random = Math.random) {
   // Intentionally sees only its own hand and the public claim's count/rank.
+  const style =
+    require("./setup").AI_STYLES[r.aiStyle] ||
+    require("./setup").AI_STYLES.balanced;
   const hand = r.hands[p.id],
     claim = r.lastMove;
-  if (claim && (r.pendingWinnerId || random() < 0.24)) {
-    if (random() < 0.45) {
+  if (claim && (r.pendingWinnerId || random() < style.respond)) {
+    if (random() < style.challenge) {
       const count = Math.max(1, Math.floor(claim.cards.length / 2));
       return {
         event: "call_bluff",
@@ -84,10 +96,10 @@ function botChoice(r, p, random = Math.random) {
     return { event: "pass_bluff", data: {} };
   }
   const matching = hand.filter((c) => c.rank === r.roundRank);
-  if (claim && !matching.length && random() < 0.65)
+  if (claim && !matching.length && random() < style.pass)
     return { event: "pass_bluff", data: {} };
   const pool =
-    r.roundRank && random() < 0.68 && matching.length ? matching : hand;
+    r.roundRank && random() < style.truth && matching.length ? matching : hand;
   const chosen = pool.slice(
     0,
     Math.min(pool.length, r.rules.maxCards, 1 + Math.floor(random() * 3)),
@@ -398,6 +410,64 @@ class RoomService {
           game.nextRound(r, now);
           presence.updatePause(r, now);
           break;
+        case "request_rematch":
+          if (r.phase !== "finished")
+            throw error("INVALID_STATE", "Wait for final results.");
+          r.rematchRequested ||= [];
+          if (!r.rematchRequested.includes(p.id)) r.rematchRequested.push(p.id);
+          break;
+        case "restart_game":
+        case "prepare_rematch":
+          if (r.phase !== "finished")
+            throw error("INVALID_STATE", "Wait for final results.");
+          if (p.id !== r.hostId)
+            throw error("NOT_HOST", "Only the host can reopen the table.");
+          Object.assign(r, {
+            phase: "lobby",
+            matchId: null,
+            roundId: null,
+            hands: {},
+            pile: [],
+            discard: [],
+            lastMove: null,
+            lastResult: null,
+            winnerId: null,
+            pendingWinnerId: null,
+            turnEndsAt: null,
+            resultDeadline: null,
+            provisional: null,
+            pause: null,
+            roundNumber: 1,
+          });
+          for (const seat of r.players) {
+            seat.ready = !!seat.isBot;
+            seat.aiTakeover = false;
+            seat.controlReason = null;
+            seat.afkStrikes = 0;
+            if (!seat.isBot && seat.connected === false && !seat.graceUntil) {
+              seat.graceUntil = now + Math.max(0, seat.graceRemainingMs || 0);
+              seat.graceStartedAt = now;
+            }
+          }
+          break;
+        case "update_settings":
+          if (p.id !== r.hostId)
+            throw error("NOT_HOST", "Only the host can edit settings.");
+          if (r.phase !== "lobby")
+            throw error(
+              "INVALID_STATE",
+              "Settings can only change in the lobby.",
+            );
+          if (
+            require("./setup").validateSettings(d).maxPlayers < r.players.length
+          )
+            throw error(
+              "INVALID_PAYLOAD",
+              "Capacity cannot remove seated players.",
+            );
+          Object.assign(r, require("./setup").validateSettings(d));
+          for (const seat of r.players) seat.ready = !!seat.isBot;
+          break;
         case "set_ready":
           if (r.phase !== "lobby")
             throw error("INVALID_STATE", "The match already started.");
@@ -406,10 +476,9 @@ class RoomService {
           p.ready = d.ready;
           break;
         case "start_game":
-        case "restart_game":
           if (p.id !== r.hostId)
             throw error("NOT_HOST", "Only the host can deal.");
-          if (r.phase !== (event === "start_game" ? "lobby" : "finished"))
+          if (r.phase !== "lobby")
             throw error("INVALID_STATE", "The match is not ready for a deal.");
           if (
             r.players.length < 2 ||
@@ -433,7 +502,7 @@ class RoomService {
               forfeit: false,
               graceRound: null,
             });
-          game.startGame(r, game.createDeck(), now);
+          game.startGame(r, game.createDeck(r.deckCount || 1), now);
           break;
         case "leave_room":
           presence.removePlayer(r, p.id, "left", now);
@@ -533,18 +602,19 @@ class RoomService {
         "RESUME_SECRET_REQUIRED",
         "A private connection secret is required.",
       );
+    const settings = require("./setup").validateSettings(data);
     const count = data.botCount ?? 3,
-      max = ai ? count + 1 : Number(data.maxPlayers || 4),
-      seconds = Number(data.turnSeconds || 30);
+      max = ai ? count + 1 : settings.maxPlayers,
+      seconds = settings.turnSeconds;
     if (
       !Number.isInteger(max) ||
       max < 2 ||
-      max > 6 ||
+      max > 10 ||
       (ai && (!Number.isInteger(count) || count < 1 || count > 5))
     )
       throw error(
         "INVALID_PAYLOAD",
-        "Choose 1 and 5 AI opponents or 2 to 6 players.",
+        "Choose 1 and 5 AI opponents or 2 to 10 players.",
       );
     if (![20, 30, 45, 60].includes(seconds))
       throw error("INVALID_PAYLOAD", "Invalid turn duration.");
@@ -583,6 +653,7 @@ class RoomService {
       turnEndsAt: null,
       winnerId: null,
       pendingWinnerId: null,
+      ...settings,
       mode: ai ? "ai" : "multiplayer",
       maxPlayers: max,
       turnSeconds: seconds,
