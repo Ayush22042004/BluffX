@@ -428,7 +428,7 @@ export function RoundResult({
     </div>
   );
 }
-export function Results({ state, me, onRematch, onHome }) {
+export function Results({ state, me, onRematch, onRequestRematch, onHome }) {
   const winner = (state.standings || state.players).find(
       (p) => p.id === state.winnerId,
     ),
@@ -465,7 +465,30 @@ export function Results({ state, me, onRematch, onHome }) {
           <Icon name="cards" />
           Match Summary
         </h3>
-        <Stat icon="flag" label="Rounds played" value={state.roundNumber} />
+        <Stat
+          icon="flag"
+          label="Completed rounds"
+          value={state.matchSummary?.completedRounds ?? state.roundNumber}
+        />
+        <Stat
+          icon="cards"
+          label="Deck mode"
+          value={`${state.deckCount || 1} deck${state.deckCount === 2 ? "s" : ""}`}
+        />
+        {state.matchSummary && (
+          <>
+            <Stat
+              icon="clock"
+              label="Duration"
+              value={`${Math.floor(state.matchSummary.durationMs / 60000)}m ${Math.floor(state.matchSummary.durationMs / 1000) % 60}s`}
+            />
+            <Stat
+              icon="trophy"
+              label="Challenges won / lost"
+              value={`${state.matchSummary.challengesWon} / ${state.matchSummary.challengesLost}`}
+            />
+          </>
+        )}
         <Stat
           icon="users"
           label="Players"
@@ -525,11 +548,51 @@ export function Results({ state, me, onRematch, onHome }) {
           </div>
         ))}
       </section>
+      {state.matchSummary && (
+        <section className="panel match-insights">
+          <h3>Your match insights</h3>
+          {state.matchSummary.players
+            .filter((p) => p.id === me.id)
+            .map((p) => (
+              <p key={p.id}>
+                {p.cardsPlayed} cards played ? {p.claims} claims ?{" "}
+                {p.challengesWon}/{p.challenges} correct challenges ?{" "}
+                {p.unchallengedBluffs} unchallenged bluffs
+              </p>
+            ))}
+          {state.matchSummary.awards.map((a, i) => (
+            <p key={i}>
+              <strong>{a.title}</strong> ?{" "}
+              {
+                state.matchSummary.players.find((p) => p.id === a.playerId)
+                  ?.name
+              }{" "}
+              ({a.count})
+            </p>
+          ))}
+          <small>
+            Awards are cosmetic. Master Bluffer counts false claims that
+            survived all passes.
+          </small>
+        </section>
+      )}
+      <p role="status">
+        {state.rematchRequests?.length || 0} player(s) requested another match.
+      </p>
       <div className="result-actions">
+        {state.hostId !== me.id && (
+          <button
+            className="primary"
+            disabled={state.rematchRequests?.includes(me.id)}
+            onClick={onRequestRematch}
+          >
+            Request rematch
+          </button>
+        )}
         {state.hostId === me.id && (
           <button className="primary" onClick={onRematch}>
             <Icon name="refresh" />
-            Rematch<small>Same group. Fresh deck.</small>
+            Rematch<small>Reopen lobby. Everyone confirms ready.</small>
           </button>
         )}
         <button className="secondary" onClick={onHome}>

@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { socket, sendGameAction } from "./lib/socket";
 import TutorialGame from "./TutorialGame";
 import VoiceChat from "./VoiceChat";
+import Community from "./Community";
+import Preferences, { readPreferences, applyPreferences } from "./Preferences";
 import { BUILD, PrivacyInfo, ReportProblem } from "./LaunchTools";
 import Deadline from "./Deadline";
 import { synchronizeClock } from "./lib/clock";
@@ -42,6 +44,19 @@ export default function App() {
     logout,
     openLogin,
   } = useAuth();
+  useEffect(() => applyPreferences(readPreferences()), []);
+  const [socialRevision, setSocialRevision] = useState(0);
+  useEffect(() => {
+    const fn = () => setSocialRevision((n) => n + 1);
+    socket.on("social_updated", fn);
+    return () => socket.off("social_updated", fn);
+  }, []);
+  const [slowConnection, setSlowConnection] = useState(false);
+  useEffect(() => {
+    const fn = (e) => setSlowConnection(!!e.detail.slow);
+    window.addEventListener("bluffx:network", fn);
+    return () => window.removeEventListener("bluffx:network", fn);
+  }, []);
   const [accountNotice, setAccountNotice] = useState("");
   const [kickTarget, setKickTarget] = useState(null);
   const [tutorialBusy, setTutorialBusy] = useState(false);
@@ -107,6 +122,10 @@ export default function App() {
     [messages, setMessages] = useState([]);
   const [botCount, setBotCount] = useState(3),
     [maxPlayers, setMaxPlayers] = useState(4),
+    [deckCount, setDeckCount] = useState(1),
+    [preset, setPreset] = useState("classic"),
+    [voiceEnabled, setVoiceEnabled] = useState(true),
+    [aiStyle, setAiStyle] = useState("balanced"),
     [turnSeconds, setTurnSeconds] = useState(30),
     [roomName, setRoomName] = useState(""),
     [password, setPassword] = useState(""),
@@ -384,6 +403,10 @@ export default function App() {
     request(ai ? "create_ai_room" : "create_room", {
       ...profile,
       botCount,
+      deckCount,
+      preset,
+      voiceEnabled,
+      aiStyle,
       maxPlayers,
       turnSeconds,
       roomName: roomName.trim() || `${profile.name}'s Bluff Arena`,
@@ -401,6 +424,22 @@ export default function App() {
     setBusy(true);
     request("join_room", { ...profile, roomId: code, password });
   };
+  useEffect(() => {
+    const invite = new URLSearchParams(location.search).get("room");
+    if (/^[A-F0-9]{6}$/i.test(invite || "")) {
+      setCode(invite.toUpperCase());
+      setScreen("join");
+    }
+  }, []);
+  const copyInvite = () =>
+    navigator.clipboard
+      ?.writeText(`${location.origin}/?room=${state.roomId}`)
+      .then(() =>
+        setError(
+          "Invitation link copied. Private tables still require a password.",
+        ),
+      )
+      .catch(() => setError(`Room code: ${state.roomId}`));
   const copy = () =>
     navigator.clipboard
       ?.writeText(state.roomId)
@@ -670,7 +709,7 @@ export default function App() {
   );
   const chat = (
     <>
-      <VoiceChat state={state} />
+      <VoiceChat state={state?.voiceEnabled === false ? null : state} />
       <Chat
         messages={messages}
         chatRef={chatRef}
@@ -980,6 +1019,26 @@ export default function App() {
                       onChange={(e) => setRoomName(e.target.value)}
                     />
                   </Field>
+                  <Field label="Match preset">
+                    <select
+                      aria-label="Match preset"
+                      value={preset}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPreset(v);
+                        if (v !== "custom") {
+                          setMaxPlayers(v === "party" ? 10 : 4);
+                          setDeckCount(v === "party" ? 2 : 1);
+                          setTurnSeconds(v === "classic" ? 30 : 20);
+                        }
+                      }}
+                    >
+                      <option value="classic">Classic - balanced table</option>
+                      <option value="party">Party - larger groups</option>
+                      <option value="quick">Quick Match - faster turns</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </Field>
                   <Field label="Game mode">
                     <div className="mode-choice">
                       <Mask size={34} />
@@ -998,7 +1057,9 @@ export default function App() {
                           : "Maximum players"
                       }
                       values={
-                        screen === "ai" ? [1, 2, 3, 4, 5] : [2, 3, 4, 5, 6]
+                        screen === "ai"
+                          ? [1, 2, 3, 4, 5]
+                          : [2, 3, 4, 5, 6, 7, 8, 9, 10]
                       }
                       value={screen === "ai" ? botCount : maxPlayers}
                       onChange={screen === "ai" ? setBotCount : setMaxPlayers}
@@ -1009,6 +1070,47 @@ export default function App() {
                         : "Total seats, including you"}
                     </small>
                   </Field>
+                  <Field label="Decks">
+                    <Segments
+                      label="Deck count"
+                      values={["One deck", "Two decks"]}
+                      value={deckCount === 2 ? "Two decks" : "One deck"}
+                      onChange={(v) => setDeckCount(v === "Two decks" ? 2 : 1)}
+                    />
+                    <small className="field-hint">
+                      {deckCount * 52} cards.{" "}
+                      {maxPlayers >= 6
+                        ? "Two decks recommended for six or more seats."
+                        : "One deck recommended for smaller tables."}{" "}
+                      Your choice stays in effect.
+                    </small>
+                  </Field>
+                  <Field label="Table voice">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={voiceEnabled}
+                        onChange={(e) => setVoiceEnabled(e.target.checked)}
+                      />{" "}
+                      Allow optional voice chat
+                    </label>
+                  </Field>
+                  {screen === "ai" && (
+                    <Field label="AI playstyle">
+                      <select
+                        aria-label="AI playstyle"
+                        value={aiStyle}
+                        onChange={(e) => setAiStyle(e.target.value)}
+                      >
+                        <option value="casual">Casual</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="aggressive">Aggressive</option>
+                      </select>
+                      <small>
+                        Styles change risk-taking, never access to hidden cards.
+                      </small>
+                    </Field>
+                  )}
                   <Field label="Time per turn">
                     <Segments
                       label="Turn duration"
@@ -1017,7 +1119,7 @@ export default function App() {
                       onChange={setTurnSeconds}
                     />
                     <small className="field-hint">
-                      Seconds to decide. All 52 cards are dealt.
+                      Seconds to decide. All {deckCount * 52} cards are dealt.
                     </small>
                   </Field>
                   {screen === "create" && (
@@ -1220,7 +1322,8 @@ export default function App() {
         <Results
           state={state}
           me={me}
-          onRematch={() => emit("restart_game")}
+          onRematch={() => emit("prepare_rematch")}
+          onRequestRematch={() => emit("request_rematch")}
           onHome={leave}
         />
       ) : (
@@ -1244,7 +1347,9 @@ export default function App() {
                 </>
               )}
             </div>
-            <div className={`table seat-count-${players.length}`}>
+            <div
+              className={`table seat-count-${players.length} ${players.length > 6 ? "large-table" : ""}`}
+            >
               <div className="table-topline">
                 <span>
                   Round <b>{state.roundNumber}</b>
@@ -1278,49 +1383,51 @@ export default function App() {
                 BLUFF<span>X</span>
                 <small>TRUST NO ONE. PLAY EVERYONE.</small>
               </div>
-              {clockwiseSeats(players, me.id)
-                .slice(1)
-                .map((p, i) => (
-                  <div
-                    className={`seat clockwise-seat ${playing && p.id === state.currentTurnId ? "active" : ""}`}
-                    style={opponentPosition(players.length, i)}
-                    role="group"
-                    aria-label={`Seat ${p.seatNumber}: ${p.name}`}
-                    data-seat-number={p.seatNumber}
-                    key={p.id}
-                  >
-                    <Avatar player={p} />
-                    <div>
-                      <strong>
-                        <span className="seat-number">{p.seatNumber}</span>{" "}
-                        {p.name}
-                      </strong>
-                      {!p.isBot && p.connected === false && (
-                        <small className="presence-label">
-                          {p.aiTakeover
-                            ? `AI playing ? ${p.aiRoundsRemaining} rounds`
-                            : "Offline ? reconnecting"}
+              <div className="opponent-seats">
+                {clockwiseSeats(players, me.id)
+                  .slice(1)
+                  .map((p, i) => (
+                    <div
+                      className={`seat clockwise-seat ${playing && p.id === state.currentTurnId ? "active" : ""}`}
+                      style={opponentPosition(players.length, i)}
+                      role="group"
+                      aria-label={`Seat ${p.seatNumber}: ${p.name}`}
+                      data-seat-number={p.seatNumber}
+                      key={p.id}
+                    >
+                      <Avatar player={p} />
+                      <div>
+                        <strong>
+                          <span className="seat-number">{p.seatNumber}</span>{" "}
+                          {p.name}
+                        </strong>
+                        {!p.isBot && p.connected === false && (
+                          <small className="presence-label">
+                            {p.aiTakeover
+                              ? `AI playing ? ${p.aiRoundsRemaining} rounds`
+                              : "Offline ? reconnecting"}
+                          </small>
+                        )}
+                        <small>
+                          {state.phase === "lobby"
+                            ? p.ready
+                              ? "✓ Ready"
+                              : "◷ Not ready"
+                            : `${count(p)} cards`}
                         </small>
+                        <div className="seat-bars">▰▰▰▰▰</div>
+                      </div>
+                      <div className="seat-cards">
+                        <Back small />
+                        <Back small />
+                        <Back small />
+                      </div>
+                      {playing && p.id === state.currentTurnId && (
+                        <label>TURN</label>
                       )}
-                      <small>
-                        {state.phase === "lobby"
-                          ? p.ready
-                            ? "✓ Ready"
-                            : "◷ Not ready"
-                          : `${count(p)} cards`}
-                      </small>
-                      <div className="seat-bars">▰▰▰▰▰</div>
                     </div>
-                    <div className="seat-cards">
-                      <Back small />
-                      <Back small />
-                      <Back small />
-                    </div>
-                    {playing && p.id === state.currentTurnId && (
-                      <label>TURN</label>
-                    )}
-                  </div>
-                ))}
+                  ))}
+              </div>
               <div className="table-center">
                 {state.phase === "lobby" ? (
                   <>
@@ -1426,13 +1533,28 @@ export default function App() {
                   </span>
                   <span>
                     <Icon name="cards" />
-                    52-card deck
+                    {(state.deckCount || 1) * 52}-card deck
                   </span>
                 </div>
                 <div className="lobby-actions">
-                  <button className="secondary" onClick={copy}>
+                  {host && (
+                    <button
+                      className="secondary"
+                      onClick={() => setModal("table-settings")}
+                    >
+                      Table settings
+                    </button>
+                  )}
+                  <button className="secondary" onClick={copyInvite}>
                     <Icon name="copy" />
-                    Invite Friends
+                    Copy Invitation Link
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => emit("set_ready", { ready: !me.ready })}
+                  >
+                    {me.ready ? "Not Ready" : "Ready Up"} (
+                    {players.filter((p) => p.ready).length}/{players.length})
                   </button>
                   {host ? (
                     <button
@@ -1445,15 +1567,7 @@ export default function App() {
                       <Icon name="play" />
                       Start Match
                     </button>
-                  ) : (
-                    <button
-                      className="primary"
-                      onClick={() => emit("set_ready", { ready: !me.ready })}
-                    >
-                      <Icon name="check" />
-                      {me.ready ? "Not Ready" : "Ready Up"}
-                    </button>
-                  )}
+                  ) : null}
                 </div>
               </>
             ) : playing ? (
@@ -1612,12 +1726,23 @@ export default function App() {
         <div className="footer-tools">
           <button onClick={() => setModal("report")}>Report a problem</button>
           <button onClick={() => setModal("privacy")}>Privacy</button>
+          <button onClick={() => setModal("preferences")}>Preferences</button>
+          {account && (
+            <button onClick={() => setModal("community")}>
+              Friends & Records
+            </button>
+          )}
           <small>Build {BUILD}</small>
         </div>
         <span>♧ BLUFFX SOCIAL CLUB</span>
         <span>Good cards help. A good bluff wins.</span>
         <span className={connected ? "green" : "gold"}>
-          ● {connected ? "Connected" : "Connecting to server"}
+          ●{" "}
+          {connected
+            ? slowConnection
+              ? "Slow action responses"
+              : "Connected"
+            : "Connecting to server"}
         </span>
       </footer>
       {error && (
@@ -1653,7 +1778,73 @@ export default function App() {
             >
               <Icon name="close" />
             </button>
-            {modal === "report" ? (
+            {modal === "table-settings" ? (
+              <section>
+                <h2>Table settings</h2>
+                <p>Changing settings asks everyone to ready up again.</p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const d = new FormData(e.currentTarget);
+                    emit("update_settings", {
+                      maxPlayers: Number(d.get("capacity")),
+                      deckCount: Number(d.get("decks")),
+                      turnSeconds: Number(d.get("seconds")),
+                      preset: "custom",
+                      voiceEnabled: state.voiceEnabled !== false,
+                      aiStyle: state.aiStyle || "balanced",
+                    });
+                    setModal(null);
+                  }}
+                >
+                  <Field label="Capacity">
+                    <select name="capacity" defaultValue={state.maxPlayers}>
+                      {Array.from({ length: 9 }, (_, i) => i + 2)
+                        .filter((n) => n >= players.length)
+                        .map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                  <Field label="Decks">
+                    <select name="decks" defaultValue={state.deckCount || 1}>
+                      <option value="1">One (52 cards)</option>
+                      <option value="2">Two (104 cards)</option>
+                    </select>
+                  </Field>
+                  <Field label="Seconds per turn">
+                    <select name="seconds" defaultValue={state.turnSeconds}>
+                      {[20, 30, 45, 60].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <button className="primary">Save table settings</button>
+                </form>
+              </section>
+            ) : modal === "community" ? (
+              <Community
+                revision={socialRevision}
+                roomId={state?.roomId}
+                onInvite={(room) => {
+                  if (state) {
+                    setError(
+                      "Leave your current table before joining another.",
+                    );
+                    return;
+                  }
+                  setCode(room);
+                  setScreen("join");
+                  setModal(null);
+                }}
+              />
+            ) : modal === "preferences" ? (
+              <Preferences />
+            ) : modal === "report" ? (
               <ReportProblem />
             ) : modal === "privacy" ? (
               <PrivacyInfo />

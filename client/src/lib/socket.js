@@ -43,6 +43,7 @@ export function sendGameAction(event, data = {}, state = null) {
   const key = JSON.stringify([event, payload]);
   if (pendingActions.has(key)) return pendingActions.get(key);
   payload.actionId = crypto.randomUUID();
+  const started = performance.now();
   const promise = new Promise((resolve) => {
     const attempt = (retry) => {
       if (!socket.gameReady || socket.id !== connectionId) {
@@ -55,6 +56,14 @@ export function sendGameAction(event, data = {}, state = null) {
         return;
       }
       socket.timeout(8000).emit(event, payload, (err, response) => {
+        window.dispatchEvent(
+          new CustomEvent("bluffx:network", {
+            detail: {
+              slow: err || performance.now() - started > 1500,
+              acknowledgementMs: Math.round(performance.now() - started),
+            },
+          }),
+        );
         if (err && retry && socket.connected) {
           setTimeout(() => attempt(false), 300);
           return;

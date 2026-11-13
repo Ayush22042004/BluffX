@@ -301,7 +301,14 @@ test("final claim ends the match, records the win, and supports rematch", async 
       path: "tests/artifacts/winner.png",
       fullPage: true,
     });
+    pending = waitFor(guest, "room_state", s => s.phase === "lobby");
     await page.getByRole("button", { name: /Rematch/ }).click();
+    await pending;
+    pending = waitFor(guest,"room_state",s => s.you.ready);
+    guest.emit("set_ready",{roomId:code,ready:true});
+    await pending;
+    await page.getByRole("button",{name:/Ready Up/}).click();
+    await page.getByRole("button",{name:"Start Match",exact:true}).click();
     await expect(page.locator(".hand .card")).toHaveCount(26);
   } finally {
     guest?.disconnect();
