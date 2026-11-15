@@ -1,5 +1,7 @@
 # BluffX
 
+Combined release handoff: [parties, personal records and mobile recovery](docs/versions/v0.3.0-update-rollout.md).
+
 Prepared hotfix: [personal records and mobile recovery](docs/versions/v0.3.0-records-mobile.md), requiring migration 008 before rollout.
 Prepared feature: [persistent parties and party voice](docs/versions/v0.3.0-parties.md), requiring migration 007 before rollout.
 
