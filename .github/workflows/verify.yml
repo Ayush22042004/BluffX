@@ -33,6 +33,8 @@ jobs:
       - run: npm ci
       - run: npm --prefix server ci
       - run: npm --prefix client ci
+      - run: npm run lint
+      - run: npm audit
       - run: node server/scripts/check-release.js
       - run: npm --prefix server audit --omit=dev
       - run: npm --prefix client audit --omit=dev
@@ -44,6 +46,9 @@ jobs:
       - run: npm run build
       - run: npx --prefix client playwright install --with-deps chrome
       - run: npm run test:e2e
+      - run: npm --prefix client run test:e2e -- build-runtime.spec.js auth.spec.js
+        env:
+          BLUFFX_TEST_BUILD: "true"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

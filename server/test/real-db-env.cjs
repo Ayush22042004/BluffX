@@ -7,7 +7,7 @@ const local = fs.existsSync(file)
   ? JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""))
   : {};
 const url = process.env.TEST_DATABASE_URL || local.url;
-const expectedHost = process.env.TEST_DATABASE_HOST || "ep-royal-hill-beqtb7ye";
+const expectedHost = process.env.TEST_DATABASE_HOST || local.host || "ep-royal-hill-beqtb7ye";
 if (
   !url ||
   !(
@@ -27,3 +27,5 @@ process.env.NODE_ENV = "development";
 process.env.PLAYTEST_INVITE_ONLY='false';
 process.env.PLAYTEST_UNRANKED='false';
 process.env.RANKED_PAIR_DAILY_LIMIT='3';
+
+process.env.REPORTS_TO="";

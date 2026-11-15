@@ -1,7 +1,8 @@
 import { io } from "socket.io-client";
 import { applyRoomPatch } from "./room-state";
+import { API_URL, SOCKET_UPGRADE } from "./endpoints";
 
-const SOCKET_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SOCKET_URL = API_URL;
 const SEAT_KEY = "bluffx:seat-resume";
 const PENDING_KEY = "bluffx:seat-pending";
 function secret() {
@@ -117,7 +118,7 @@ export const socket = io(SOCKET_URL, {
   addTrailingSlash: !import.meta.env.PROD,
   // Polling also works through an HTTP reverse proxy if WebSocket upgrade is unavailable.
   transports: ["polling", "websocket"],
-  upgrade: !import.meta.env.PROD,
+  upgrade: SOCKET_UPGRADE,
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 30000,

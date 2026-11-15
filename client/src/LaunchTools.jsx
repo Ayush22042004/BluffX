@@ -7,6 +7,7 @@ export function PrivacyInfo() {
   return (
     <>
       <h2>Your privacy</h2>
+      <p>Player-submitted reports may be forwarded to the configured support inbox, including your account name, Player Code, contact email and description. Do not include passwords, private cards or access tokens. Automatic browser diagnostics do not generate report emails.</p>
       <p>
         Optional social features store a public player identifier, friend
         requests, friendships, blocks, invitations and cosmetic achievement
@@ -64,6 +65,7 @@ export function ReportProblem() {
       <p>
         Tell us what happened and what you expected. Private cards and
         credentials are not attached.
+        If signed in, your account name, Player Code and email are included so support can contact you.
       </p>
       <form
         onSubmit={async (e) => {

@@ -1,9 +1,13 @@
 // One indexed heap, one timer, bounded concurrent room work. No idle room scans.
 class DeadlineScheduler {
-  constructor(run, { now = Date.now, concurrency = 4 } = {}) {
+  constructor(
+    run,
+    { now = Date.now, concurrency = 4, onError = () => {} } = {},
+  ) {
     this.run = run;
     this.now = now;
     this.concurrency = concurrency;
+    this.onError = onError;
     this.heap = [];
     this.positions = new Map();
     this.running = new Set();
@@ -97,7 +101,13 @@ class DeadlineScheduler {
       this.running.add(id);
       Promise.resolve()
         .then(() => this.run(id))
-        .catch(() => {})
+        .catch(() => {
+          try {
+            this.onError();
+          } catch {
+            /* Diagnostics must not break scheduling. */
+          }
+        })
         .finally(() => {
           this.running.delete(id);
           if (this.after.has(id)) {

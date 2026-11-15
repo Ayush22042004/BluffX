@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { socket } from "./lib/socket";
+import SpeakingBadge from "./SpeakingBadge";
 import { updateVoiceActivity } from "./lib/voice-activity";
+import {
+  captureConstraints,
+  captureReport,
+  readCaptureMode,
+  saveCaptureMode,
+  sampleInput,
+} from "./lib/voice-capture";
 import {
   bufferVoice,
   limitVoiceSender,
@@ -32,7 +40,7 @@ function signalPeer(s, to, signal) {
   });
 }
 
-export default function VoiceChat({ state }) {
+export default function VoiceChat({ state, onSpeakingChange }) {
   const [joined, setJoined] = useState(false),
     [busy, setBusy] = useState(false);
   const [muted, setMuted] = useState(true),
@@ -42,11 +50,37 @@ export default function VoiceChat({ state }) {
   const [speaking, setSpeaking] = useState({}),
     [error, setError] = useState("");
   const [noiseReduction, setNoiseReduction] = useState(false);
+  const [captureMode, setCaptureMode] = useState(readCaptureMode);
+  const [inputQuality, setInputQuality] = useState(null);
   const [qualityOpen, setQualityOpen] = useState(false),
     [quality, setQuality] = useState({});
   const session = useRef(null),
     generation = useRef(0);
   const roomId = state?.roomId;
+  const publishedActivity = useRef("");
+  useEffect(() => {
+    const seatIds =
+      joined && session.current?.roomId === roomId
+        ? peers
+            .filter(
+              (p) =>
+                speaking[p.socketId] &&
+                !p.muted &&
+                !(p.socketId === socket.id && muted),
+            )
+            .map((p) => p.seatId)
+            .sort()
+        : [];
+    const signature = JSON.stringify([roomId, seatIds]);
+    if (signature !== publishedActivity.current) {
+      publishedActivity.current = signature;
+      onSpeakingChange?.({ roomId, seatIds });
+    }
+  }, [speaking, peers, roomId, joined, muted, onSpeakingChange]);
+  useEffect(
+    () => () => onSpeakingChange?.({ roomId, seatIds: [] }),
+    [roomId, onSpeakingChange],
+  );
 
   function cleanup(notify = true) {
     generation.current++;
@@ -73,6 +107,7 @@ export default function VoiceChat({ state }) {
     setMuted(true);
     setDeafened(false);
     setQuality({});
+    setInputQuality(null);
     setQualityOpen(false);
   }
 
@@ -88,7 +123,10 @@ export default function VoiceChat({ state }) {
 
   function peer(s, id) {
     if (s.peers.has(id)) return s.peers.get(id);
-    const pc = new RTCPeerConnection({ iceServers: s.iceServers, iceTransportPolicy: s.iceTransportPolicy || 'all' });
+    const pc = new RTCPeerConnection({
+      iceServers: s.iceServers,
+      iceTransportPolicy: s.iceTransportPolicy || "all",
+    });
     const audio = new Audio();
     audio.autoplay = true;
     audio.muted = s.deafened;
@@ -300,15 +338,25 @@ export default function VoiceChat({ state }) {
               rows[id] = {
                 ...measured.display,
                 connection: peer.pc.connectionState,
-                captureEnabled: s.stream.getAudioTracks()[0]?.enabled,
-                captureMuted: s.stream.getAudioTracks()[0]?.muted,
+                captureEnabled: s.stream.getAudioTracks()[0]?.enabled ?? null,
+                captureMuted: s.stream.getAudioTracks()[0]?.muted ?? null,
                 playbackPaused: peer.audio.paused,
                 playbackMuted: peer.audio.muted,
               };
             } catch {}
           }),
         );
-        if (active && session.current === s) setQuality(rows);
+        if (active && session.current === s) {
+          setQuality(rows);
+          setInputQuality(
+            captureReport(
+              s.stream.getAudioTracks()[0],
+              s.meters.get(socket.id),
+              s.captureMode,
+              s.captureMuteEvents,
+            ),
+          );
+        }
       } finally {
         busy = false;
       }
@@ -339,6 +387,7 @@ export default function VoiceChat({ state }) {
       }
       const Context = window.AudioContext || window.webkitAudioContext;
       const s = {
+        roomId,
         stream,
         peers: new Map(),
         meters: new Map(),
@@ -348,6 +397,8 @@ export default function VoiceChat({ state }) {
         voiceId: result.peers.find((p) => p.socketId === socket.id).voiceId,
         context: Context ? new Context() : null,
         muted: true,
+        captureMode,
+        captureMuteEvents: 0,
         deafened: false,
       };
       session.current = s;
@@ -357,13 +408,12 @@ export default function VoiceChat({ state }) {
         const now = performance.now();
         for (const [id, m] of s.meters) {
           m.analyser.getFloatTimeDomainData(m.bytes);
-          let sum = 0;
-          for (const x of m.bytes) sum += x * x;
+          const level = sampleInput(m, m.bytes);
           const member = s.roster.find((p) => p.socketId === id);
           if (
             updateVoiceActivity(
               m,
-              Math.sqrt(sum / m.bytes.length),
+              level,
               now,
               !member || member.muted || (id === socket.id && s.muted),
             )
@@ -399,6 +449,7 @@ export default function VoiceChat({ state }) {
     s.stream.getTracks().forEach((track) => {
       track.enabled = false;
       track.onended = null;
+      track.onmute = null;
       track.stop();
     });
     for (const peer of s.peers.values())
@@ -419,15 +470,9 @@ export default function VoiceChat({ state }) {
         s.muted = true;
         setMuted(true);
       } else {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: noiseReduction,
-            autoGainControl: false,
-            channelCount: 1,
-          },
-          video: false,
-        });
+        const stream = await navigator.mediaDevices.getUserMedia(
+          captureConstraints(captureMode, noiseReduction),
+        );
         if (session.current !== s) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -435,6 +480,11 @@ export default function VoiceChat({ state }) {
         stream.getAudioTracks().forEach((track) => (track.enabled = false));
         s.stream = stream;
         const track = stream.getAudioTracks()[0];
+        s.captureMode = captureMode;
+        s.captureMuteEvents = 0;
+        track.onmute = () => {
+          if (session.current === s) s.captureMuteEvents++;
+        };
         await Promise.all(
           [...s.peers.values()].map((peer) =>
             peer.transceiver?.sender.replaceTrack(track),
@@ -536,36 +586,71 @@ export default function VoiceChat({ state }) {
               ? "Listening · Your microphone is off."
               : "Open mic · Audio stays live until you mute."}
           </p>
+          <fieldset className="voice-audio-setup" disabled={!muted || busy}>
+            <legend>Audio setup</legend>
+            <div className="voice-setup-options">
+              {[
+                {
+                  value: "headphones",
+                  title: "Headphones",
+                  detail: "Natural voice",
+                  path: "M4 14v-3a8 8 0 0 1 16 0v3M4 13H2v7h5v-7H4Zm16 0h2v7h-5v-7h3Z",
+                },
+                {
+                  value: "speakers",
+                  title: "Speakers",
+                  detail: "Echo protection",
+                  path: "m11 4-6 5H2v6h3l6 5V4Zm5 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14",
+                },
+              ].map((mode) => (
+                <label key={mode.value} className="voice-setup-choice">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="22"
+                    height="22"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d={mode.path} />
+                  </svg>
+                  <input
+                    type="radio"
+                    name="voice-audio-setup"
+                    aria-label={mode.title}
+                    value={mode.value}
+                    checked={captureMode === mode.value}
+                    onChange={() => {
+                      setCaptureMode(mode.value);
+                      saveCaptureMode(mode.value);
+                    }}
+                  />
+                  <span>
+                    <strong>{mode.title}</strong>
+                    <small>{mode.detail}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p className="voice-capture-hint">
+            {captureMode === "headphones"
+              ? "Use headphones. Echo cancellation and automatic gain are off."
+              : "Echo protection is on for speaker playback."}
+            {!muted && " Mute to change audio processing."}
+          </p>
           <label className="voice-noise-option">
             <input
               type="checkbox"
+              aria-label="Noise reduction"
               checked={noiseReduction}
-              onChange={async (e) => {
-                const next = e.target.checked,
-                  s = session.current;
-                if (!s) return;
-                setNoiseReduction(next);
-                try {
-                  await Promise.all(
-                    s.stream.getAudioTracks().map((track) =>
-                      track.applyConstraints({
-                        ...track.getConstraints(),
-                        noiseSuppression: next,
-                      }),
-                    ),
-                  );
-                  if (session.current === s) setNoiseReduction(next);
-                } catch {
-                  if (session.current === s) {
-                    setNoiseReduction(!next);
-                    setError(
-                      "This microphone could not change noise reduction.",
-                    );
-                  }
-                }
-              }}
+              disabled={!muted || busy}
+              onChange={(e) => setNoiseReduction(e.target.checked)}
             />
-            Noise reduction
+            Noise reduction (optional)
           </label>
           <ul className="voice-members">
             {peers.map((p) => {
@@ -584,11 +669,15 @@ export default function VoiceChat({ state }) {
                     {player?.name || "Player"}
                     {self ? " (You)" : ""}
                     <small>
-                      {p.muted
-                        ? "Muted"
-                        : !self && connections[p.socketId] !== "connected"
-                          ? connections[p.socketId] || "Connecting"
-                          : "Mic on"}
+                      {p.muted ? (
+                        "Muted"
+                      ) : !self && connections[p.socketId] !== "connected" ? (
+                        connections[p.socketId] || "Connecting"
+                      ) : speaking[p.socketId] ? (
+                        <SpeakingBadge />
+                      ) : (
+                        "Mic on"
+                      )}
                     </small>
                   </span>
                   {!self && (
@@ -597,8 +686,13 @@ export default function VoiceChat({ state }) {
                       type="range"
                       min="0"
                       max="100"
+                      step="1"
                       defaultValue="100"
                       onChange={(e) => {
+                        e.currentTarget.style.setProperty(
+                          "--voice-volume",
+                          `${e.target.value}%`,
+                        );
                         const remote = session.current?.peers.get(p.socketId);
                         if (remote)
                           remote.audio.volume = Number(e.target.value) / 100;
@@ -614,6 +708,35 @@ export default function VoiceChat({ state }) {
             onToggle={(e) => setQualityOpen(e.currentTarget.open)}
           >
             <summary>Voice connection details</summary>
+            {inputQuality && (
+              <p className="voice-input-diagnostics">
+                <strong>Your microphone</strong>
+                <br />
+                {inputQuality.readyState} ? {inputQuality.mode}
+                <br />
+                Echo cancellation:{" "}
+                {inputQuality.echoCancellation == null
+                  ? "unreported"
+                  : inputQuality.echoCancellation
+                    ? "on"
+                    : "off"}{" "}
+                ? Auto gain:{" "}
+                {inputQuality.autoGainControl == null
+                  ? "unreported"
+                  : inputQuality.autoGainControl
+                    ? "on"
+                    : "off"}
+                <br />
+                Sampled input: {inputQuality.sampledLevelDbfs ?? "?"} dBFS ?
+                Clipping: {inputQuality.sampledClippingPercent ?? "?"}%
+                {inputQuality.sampledClippingPercent > 1 && (
+                  <span className="voice-clipping-warning">
+                    Input is clipping. Lower microphone input gain in your
+                    system or headset app.
+                  </span>
+                )}
+              </p>
+            )}
             {Object.entries(quality).map(([id, q]) => (
               <p key={id}>
                 <strong>
@@ -640,7 +763,8 @@ export default function VoiceChat({ state }) {
                   await navigator.clipboard.writeText(
                     JSON.stringify(
                       {
-                        version: "voice-transport-2",
+                        version: "voice-transport-3",
+                        microphone: inputQuality,
                         peers: Object.values(quality),
                       },
                       null,

@@ -1,7 +1,6 @@
+import { API_URL } from "./endpoints";
 export const avatarUrl = (id) =>
-  id
-    ? `${import.meta.env.VITE_SERVER_URL || "http://localhost:4000"}/auth/avatar/${encodeURIComponent(id)}`
-    : null;
+  id ? `${API_URL}/auth/avatar/${encodeURIComponent(id)}` : null;
 export async function prepareAvatar(file) {
   if (!file || !["image/png", "image/jpeg", "image/webp"].includes(file.type))
     throw Error("Choose a PNG, JPEG or WebP photo.");

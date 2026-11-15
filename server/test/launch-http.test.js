@@ -10,6 +10,8 @@ test("reports are sanitized and private; email-confirmed deletion revokes sessio
     mail = [];
   let failErasure = true,
     erased = [];
+  const queuedReports = [];
+  let failQueue = false;
   const auth = await createAuth({
     pool,
     production: false,
@@ -29,6 +31,14 @@ test("reports are sanitized and private; email-confirmed deletion revokes sessio
     io: { sockets: { sockets: new Map() } },
     metrics: { add() {}, report: () => ({}) },
     build: "test-build",
+    reportEmail: {
+      enabled: true,
+      enqueue: async (tx, report) => {
+        if (failQueue) throw Error("queue persistence failed");
+        queuedReports.push(report);
+      },
+      kick() {},
+    },
   });
   const server = await new Promise((resolve) => {
       const s = app.listen(0, "127.0.0.1", () => resolve(s));
@@ -64,6 +74,7 @@ test("reports are sanitized and private; email-confirmed deletion revokes sessio
         roomId: "FORGED",
         matchId: "FORGED",
         hands: ["SECRET_CARD"],
+        reporter: { name: "Forged", email: "attacker@example.com", playerCode: "FAKE" },
         codes: ["STALE_TURN", "private token"],
       },
       account.cookie,
@@ -77,6 +88,31 @@ test("reports are sanitized and private; email-confirmed deletion revokes sessio
     assert.equal(row.match_id, null);
     assert.equal(JSON.stringify(row).includes("SECRET_CARD"), false);
     assert.deepEqual(row.diagnostic.codes, ["STALE_TURN"]);
+    assert.equal(queuedReports[0].id, report.data.id);
+    assert.equal(queuedReports[0].reporter.name, "Erase Account");
+    assert.equal(queuedReports[0].reporter.email, "erase@example.com");
+    assert.equal(queuedReports[0].reporter.emailVerified, false);
+    assert.match(queuedReports[0].reporter.playerCode, /^[A-F0-9]{4}(-[A-F0-9]{4}){3}$/);
+    const profile = await auth.database.get("SELECT handle FROM bx_social_profiles WHERE user_id=?", row.user_id);
+    assert.equal(queuedReports[0].reporter.playerCode.replaceAll("-", "").toLowerCase(), profile.handle);
+    assert.ok(!JSON.stringify(queuedReports[0]).includes("attacker@example.com"));
+    assert.ok(!JSON.stringify(queuedReports[0]).includes("SECRET_CARD"));
+    failQueue = true;
+    assert.equal(
+      (
+        await call(
+          "report",
+          {
+            category: "other",
+            description: "Test an outbox persistence failure.",
+          },
+          account.cookie,
+        )
+      ).status,
+      503,
+    );
+    // pg-mem cannot roll back writes; actual rollback is verified in report-email-pg.test.js.
+    failQueue = false;
     assert.equal((await call("ops/reports")).status, 403);
     assert.equal(
       (await call("confirm-account-deletion", { token: "bad" })).status,

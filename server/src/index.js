@@ -1,5 +1,6 @@
 require("./environment").loadEnvironment();
 const express = require("express");
+const { securityHeaders } = require("./security-headers");
 const http = require("node:http");
 const crypto = require("node:crypto");
 const cors = require("cors");
@@ -18,6 +19,10 @@ const {
 } = require("./protocol");
 const { RULES } = require("./rules");
 const { createVoice } = require("./voice");
+const {
+  ReportEmail,
+  settings: reportEmailSettings,
+} = require("./report-email");
 const RELEASE = require("../package.json").version;
 const BUILD = `${RELEASE}:${(process.env.RENDER_GIT_COMMIT || process.env.BUILD_SHA || "local").slice(0, 40)}`;
 const { installLaunch, checkInvitation } = require("./launch-controls");
@@ -77,6 +82,7 @@ async function startServer({
   store: providedStore,
 } = {}) {
   const production = process.env.NODE_ENV === "production";
+  reportEmailSettings();
   if (production)
     for (const key of ["OPS_API_TOKEN", "RATE_IDENTITY_SECRET"])
       if ((process.env[key] || "").length < 32)
@@ -116,6 +122,8 @@ async function startServer({
     cb(null, !value || allowed.has(value) || (!production && local));
   };
   const app = express();
+  app.disable("x-powered-by");
+  app.use(securityHeaders);
   if (process.env.RENDER === "true") app.set("trust proxy", 1);
   app.use(cors({ origin, credentials: true }));
   const server = http.createServer(app),
@@ -202,7 +210,16 @@ async function startServer({
       const query = client.query.bind(client);
       client.query = (...args) => {
         metrics.add("sqlCalls");
-        return query(...args);
+        const started = metrics.start();
+        try {
+          const result = query(...args);
+          return result?.finally
+            ? result.finally(() => metrics.end("sqlQuery", started))
+            : result;
+        } catch (e) {
+          metrics.end("sqlQuery", started);
+          throw e;
+        }
       };
     };
     store.pool._clients.forEach(instrument);
@@ -264,13 +281,11 @@ async function startServer({
         );
         next();
       } catch (e) {
-        res
-          .status(429)
-          .json({
-            code: "RATE_LIMITED",
-            message: "Player records are busy. Try again shortly.",
-            retryAfterMs: e.retryAfterMs || 1000,
-          });
+        res.status(429).json({
+          code: "RATE_LIMITED",
+          message: "Player records are busy. Try again shortly.",
+          retryAfterMs: e.retryAfterMs || 1000,
+        });
       }
     },
     auth.router,
@@ -319,7 +334,16 @@ async function startServer({
     }),
   );
   app.get("/", (_req, res) => res.send("BluffX authoritative game server."));
-  installLaunch({ app, auth, service, io, metrics, build: BUILD });
+  const reportEmail = new ReportEmail({
+    db: auth.database,
+    mailer: auth.mailer,
+    isReady: () => ready && store.available && !stopping,
+    onError: (code) => {
+      metrics.add("reportEmailFailures");
+      console.error(code);
+    },
+  });
+  installLaunch({ app, auth, service, io, metrics, build: BUILD, reportEmail });
   function actorFor(socket) {
     return {
       id: socket.data.playerId,
@@ -720,6 +744,7 @@ async function startServer({
   scheduler = new DeadlineScheduler((code) => service.wake(code), {
     now: () => service.now(),
     concurrency: RULES.gamePoolSize,
+    onError: () => metrics.add("schedulerFailures"),
   });
   service.onSchedule = (code, at, available) => {
     scheduler.set(code, store.available ? at : null);
@@ -764,7 +789,10 @@ async function startServer({
         }),
       );
     });
-  const retention = setInterval(() => store.prune().catch(() => {}), 3600000);
+  const retention = setInterval(
+    () => store.prune().catch(() => metrics.add("retentionFailures")),
+    3600000,
+  );
   retention.unref();
   const sampledMetrics = production
     ? setInterval(
@@ -776,6 +804,22 @@ async function startServer({
               ...metrics.report({
                 activeRooms: service.rooms.size,
                 connectedSockets: io.sockets.sockets.size,
+                databasePool: store.pool
+                  ? {
+                      total: store.pool.totalCount,
+                      idle: store.pool.idleCount,
+                      waiting: store.pool.waitingCount,
+                    }
+                  : null,
+                transports: [...io.sockets.sockets.values()].reduce(
+                  (totals, socket) => {
+                    const name = socket.conn.transport.name;
+                    if (name === "polling" || name === "websocket")
+                      totals[name]++;
+                    return totals;
+                  },
+                  { polling: 0, websocket: 0 },
+                ),
               }),
             }),
           ),
@@ -788,6 +832,7 @@ async function startServer({
     server.listen(port, resolve);
   });
   console.log(`BluffX server on http://localhost:${server.address().port}`);
+  reportEmail.kick();
   async function close() {
     if (stopping) return;
     stopping = true;
@@ -805,6 +850,7 @@ async function startServer({
     limiter.entries.clear();
     io.close();
     await new Promise((resolve) => server.close(resolve));
+    await reportEmail.close();
     await auth.close();
     await store.close();
   }

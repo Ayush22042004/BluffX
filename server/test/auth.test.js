@@ -435,3 +435,70 @@ test("verification and reset use the selected mail service; failed delivery pres
     await f.close();
   }
 });
+
+test("Brevo HTTPS adapter completes verification, reset and deletion confirmation through account routes", async () => {
+  const sent = [];
+  const { createMailer } = require("../src/mailer");
+  const mailer = createMailer({
+    env: {
+      MAIL_PROVIDER: "brevo",
+      BREVO_API_KEY: "test-only-brevo-key",
+      MAIL_FROM: "BluffX <sender@example.com>",
+    },
+    fetchImpl: async (_url, options) => {
+      sent.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        json: async () => ({ messageId: "test-message-" + sent.length }),
+      };
+    },
+  });
+  const f = await setup({ mailer });
+  const token = () =>
+    new URL(sent.at(-1).textContent.match(/http[^\s]+/)[0]).searchParams.get(
+      "token",
+    );
+  try {
+    const signup = await f.request("signup", data);
+    assert.equal(signup.body.emailDelivery, "brevo");
+    assert.equal(signup.body.emailSent, true);
+    assert.equal(sent[0].to[0].email, data.email);
+    assert.equal(
+      (await f.request("verify-email", { token: token() })).status,
+      200,
+    );
+    await f.request("forgot-password", { email: data.email });
+    assert.equal(
+      (
+        await f.request("reset-password", {
+          token: token(),
+          password: "NewBrevoPassword123!",
+        })
+      ).status,
+      200,
+    );
+    const login = await f.request("login", {
+      email: data.email,
+      password: "NewBrevoPassword123!",
+    });
+    assert.equal(login.status, 200);
+    assert.equal(
+      (
+        await f.request(
+          "request-account-deletion",
+          {},
+          login.cookie.split(";")[0],
+        )
+      ).status,
+      200,
+    );
+    assert.match(sent.at(-1).subject, /Confirm deletion/i);
+    assert.equal(
+      (await f.request("confirm-account-deletion", { token: token() })).status,
+      200,
+    );
+    assert.equal(sent.length, 3);
+  } finally {
+    await f.close();
+  }
+});

@@ -1,5 +1,31 @@
 # BluffX
 
+Final release checks and deployment handoff: [2026-11-15 audit](docs/versions/v0.3.0-final-audit.md).
+
+Existing Gmail sender setup: [Gmail API over HTTPS](docs/gmail.md).
+
+Current email alternative: [Brevo setup](docs/brevo.md).
+
+Latest voice UI: [clear speaking indicators](docs/versions/v0.3.0-speaking-indicators.md).
+
+Latest UI polish: [voice setup choices](docs/versions/v0.3.0-voice-setup-ui.md).
+
+Latest voice update: [headphone capture continuity](docs/versions/v0.3.0-headphone-capture.md).
+
+Audit fixes and release qualification: [v0.3.0 reliability update](docs/versions/v0.3.0-reliability-fixes.md).
+
+Latest UI update: [table settings dialog](docs/versions/v0.3.0-table-settings.md).
+
+Latest theme update: [original v3 Pink restoration](docs/versions/v0.3.0-original-pink.md).
+
+Theme colors: [coordinated palettes](docs/versions/v0.3.0-theme-palettes.md).
+
+Player appearance settings: [three selectable neon themes](docs/versions/v0.3.0-theme-picker.md).
+
+Latest visual update: [neon blue theme](docs/versions/v0.3.0-neon-blue.md).
+
+Email setup: [Resend and report notifications](docs/resend.md), with the [update record](docs/versions/v0.3.0-resend.md).
+
 Realtime multiplayer Bluff variant with selective challenge mechanics.
 
 ## Version history

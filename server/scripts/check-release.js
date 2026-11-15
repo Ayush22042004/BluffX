@@ -25,6 +25,8 @@ for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), "utf8");
   if (/re_[a-zA-Z0-9]{30,}/.test(text))
     throw Error("Potential provider secret in release source: " + file);
+  if (/xkeysib-[a-zA-Z0-9-]{30,}/.test(text))
+    throw Error("Potential provider secret in release source: " + file);
 }
 const required = [
   "server/src/recovery.js",

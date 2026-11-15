@@ -4,6 +4,10 @@ import App from "./App";
 import DisplayHints from "./DisplayHints";
 import { AuthProvider } from "./auth";
 import "./index.css";
+import "./theme-ui.css";
+import "./table-settings.css";
+import { applyPreferences, readPreferences } from "./Preferences";
+applyPreferences(readPreferences());
 import { reportDiagnostic } from "./lib/diagnostics";
 window.addEventListener("error", () => reportDiagnostic("WINDOW_ERROR"));
 window.addEventListener("unhandledrejection", () =>
@@ -26,7 +30,6 @@ class RootErrorBoundary extends Component {
   componentDidCatch(error, info) {
     reportDiagnostic("CLIENT_RENDER_ERROR");
     // Keep details in dev console for debugging while showing a friendly fallback in UI.
-    // eslint-disable-next-line no-console
     console.error("Root render failure", error, info);
   }
 

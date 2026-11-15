@@ -11,3 +11,5 @@ if(process.env.BLUFFX_TEST_TURN!=='true') {
  process.env.VOICE_TURN_PROVIDER='none';process.env.VOICE_TURN_URL='';process.env.VOICE_TURN_SECRET='';process.env.VOICE_RELAY_ONLY='false';
 } else process.env.VOICE_RELAY_ONLY='true';
 require('../src/game-store').createGameStore = async () => new (require('./memory-game-store.cjs').MemoryGameStore)();
+
+process.env.REPORTS_TO="";

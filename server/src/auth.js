@@ -609,6 +609,7 @@ async function createAuth({
     publicUser,
     userById,
     database: db,
+    mailer: emailService,
     rateIdentity: (header) => browserIdentity.read(header),
     async close() {
       clearInterval(cleanup);

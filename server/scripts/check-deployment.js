@@ -23,8 +23,21 @@ if (process.env.DEPLOYMENT_CHECK_MODE !== "isolated") {
       "PASS read-only backend health; deployed version:",
       health.version || "unreported",
     );
+    const expected = process.env.DEPLOYMENT_EXPECTED_VERSION;
+    const expectedRevision = process.env.DEPLOYMENT_EXPECTED_REVISION;
+    if (expected && health.version !== expected)
+      throw Error("Backend version mismatch; expected " + expected);
+    if (expectedRevision && !health.build?.endsWith(":" + expectedRevision))
+      throw Error("Backend revision mismatch; expected " + expectedRevision);
     await get(frontend);
     console.log("PASS frontend availability");
+    if (expected || expectedRevision) {
+      const version = await (await get(frontend + "/version.json")).json();
+      if (expected && version.version !== expected) throw Error("Frontend version mismatch; expected " + expected);
+      if (expectedRevision && version.revision !== expectedRevision)
+        throw Error("Frontend revision mismatch; expected " + expectedRevision);
+      console.log("PASS matching frontend/backend release versions");
+    }
     await get(frontend + "/auth/config");
     await get(frontend + "/auth/session");
     console.log("PASS same-origin authentication proxy endpoints");

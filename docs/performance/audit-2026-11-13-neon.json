@@ -1,0 +1,43 @@
+{
+  "release": "0.3.0",
+  "mode": "isolated-neon",
+  "roomCount": 3,
+  "roundsPerRoom": 2,
+  "rateLimitsDisabledForLoopback": true,
+  "workload": {
+    "count": 18,
+    "averageMs": 775.2867222222225,
+    "p95Ms": 1900.7489999999998,
+    "rounds": 6,
+    "wallMs": 5136.8282,
+    "cpuMs": 63,
+    "sqlQueries": 54,
+    "receiptLookups": 0,
+    "commits": 18,
+    "messages": 48,
+    "bytes": 49002
+  },
+  "idle": {
+    "durationMs": 2000,
+    "sqlQueries": 0,
+    "receiptLookups": 0,
+    "commits": 0,
+    "messages": 0
+  },
+  "persistence": {
+    "count": 35,
+    "averageMs": 780.8468714285714,
+    "p95Ms": 1897.2209999999977
+  },
+  "elapsedMs": 19638.3278,
+  "cpuMs": 281,
+  "rssBytes": 79147008,
+  "peakRssBytes": 80228352,
+  "heapUsedBytes": 19808904,
+  "eventLoopP95Ms": 32.145407,
+  "appMessages": 87,
+  "appBytes": 87193,
+  "aiTakeovers": 2,
+  "activeRooms": 2,
+  "sockets": 5
+}

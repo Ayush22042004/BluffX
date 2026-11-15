@@ -20,7 +20,10 @@ function continuousTone() {
   wav.writeUInt32LE(samples * 2, 40);
   for (let i = 0; i < samples; i++)
     wav.writeInt16LE(
-      Math.round(Math.sin((2 * Math.PI * 440 * i) / 48000) * 8000),
+      Math.round(
+        Math.sin((2 * Math.PI * 440 * i) / 48000) *
+          [2500, 8000, 22000, 30000][Math.floor(i / 96000) % 4],
+      ),
       44 + i * 2,
     );
   mkdirSync("tests/artifacts", { recursive: true });
@@ -170,6 +173,35 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
       )
       .toBe(true);
     await expect(a.locator(".voice-mode")).toContainText("Audio stays live");
+    const settings = await a.evaluate(() =>
+      window.__voiceStreams[0].getAudioTracks()[0].getSettings(),
+    );
+    expect(settings.echoCancellation).toBe(false);
+    expect(settings.noiseSuppression).toBe(false);
+    expect(settings.autoGainControl).toBe(false);
+    for (const page of pages) {
+      const speaker = page
+        .locator(".player-panel .player-row")
+        .filter({ hasText: "Voice Alice" });
+      await expect(speaker).toHaveClass(/voice-speaking/);
+      await expect(speaker.locator(".speaking-badge")).toHaveText("Speaking");
+      await expect(
+        page
+          .locator(".player-panel .player-row")
+          .filter({ hasText: "Voice Bob" })
+          .locator(".speaking-badge"),
+      ).toHaveCount(0);
+    }
+    await b.setViewportSize({ width: 1440, height: 1000 });
+    await b
+      .locator(".player-panel")
+      .screenshot({ path: "tests/artifacts/speaking-players-desktop.png" });
+    await b
+      .locator(".voice-panel")
+      .screenshot({ path: "tests/artifacts/speaking-voice-desktop.png" });
+    await expect(
+      a.getByRole("radio", { name: "Headphones", exact: true }),
+    ).toBeDisabled();
     const [capture, reception] = await Promise.all([
       a.evaluate(async () => {
         const track = window.__voiceStreams[0].getAudioTracks()[0];
@@ -224,7 +256,7 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
       source.connect(analyser);
       const values = new Float32Array(2048),
         levels = [];
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 120; i++) {
         await new Promise((resolve) => setTimeout(resolve, 50));
         analyser.getFloatTimeDomainData(values);
         levels.push(
@@ -288,10 +320,9 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
     await expect(
       a.getByLabel("Noise reduction", { exact: true }),
     ).not.toBeChecked();
-    await a.getByLabel("Noise reduction", { exact: true }).check();
     await expect(
       a.getByLabel("Noise reduction", { exact: true }),
-    ).toBeChecked();
+    ).toBeDisabled();
     expect(
       await a.evaluate(
         () => window.__voiceStreams[0]?.getAudioTracks()[0]?.enabled,
@@ -313,8 +344,36 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
     await expect(
       b.getByRole("button", { name: "Undeafen", exact: true }),
     ).toBeVisible();
-    await b.getByLabel("Volume for Voice Alice").fill("35");
+    const volume = b.getByLabel("Volume for Voice Alice");
+    const slider = await volume.boundingBox();
+    await b.mouse.click(slider.x + 1, slider.y + slider.height / 2);
+    await expect(volume).toHaveValue("0");
+    expect(await b.evaluate(() => document.querySelector("audio").volume)).toBe(
+      0,
+    );
+    await b.mouse.click(
+      slider.x + slider.width - 1,
+      slider.y + slider.height / 2,
+    );
+    await expect(volume).toHaveValue("100");
+    expect(await b.evaluate(() => document.querySelector("audio").volume)).toBe(
+      1,
+    );
+    await volume.press("Home");
+    await expect(volume).toHaveValue("0");
+    await volume.press("End");
+    await expect(volume).toHaveValue("100");
+    await volume.fill("35");
+    expect(await b.evaluate(() => document.querySelector("audio").volume)).toBe(
+      0.35,
+    );
     await a.getByRole("button", { name: "Mute Mic", exact: true }).click();
+    await expect(
+      b
+        .locator(".player-panel .player-row")
+        .filter({ hasText: "Voice Alice" })
+        .locator(".speaking-badge"),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         a.evaluate(
@@ -329,7 +388,12 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
           .every((t) => t.readyState === "ended"),
       ),
     ).toBe(true);
+    await a.getByLabel("Noise reduction", { exact: true }).check();
+    await expect(
+      a.getByLabel("Noise reduction", { exact: true }),
+    ).toBeChecked();
     // Reverse direction without ever opening the same microphone in both contexts.
+    await b.getByRole("radio", { name: "Speakers", exact: true }).check();
     await b.getByRole("button", { name: "Unmute Mic", exact: true }).click();
     await expect
       .poll(() =>
@@ -338,6 +402,13 @@ test("two browsers exchange real audio, mute, deafen, set volume and release mic
         ),
       )
       .toBe(true);
+    expect(
+      await b.evaluate(
+        () =>
+          window.__voiceStreams[0].getAudioTracks()[0].getSettings()
+            .echoCancellation,
+      ),
+    ).toBe(true);
     await expect
       .poll(() =>
         a.evaluate(async () => {

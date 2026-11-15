@@ -26,8 +26,20 @@ module.exports = defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: "npm run dev -- --strictPort --port 5180",
-      env: { VITE_SERVER_URL: "http://localhost:4020" },
+      command:
+        process.env.BLUFFX_TEST_BUILD === "true"
+          ? "npm run build && npm run preview -- --strictPort --port 5180"
+          : "npm run dev -- --strictPort --port 5180",
+      env: {
+        VITE_SERVER_URL:
+          process.env.BLUFFX_TEST_BUILD === "true"
+            ? ""
+            : "http://localhost:4020",
+        BLUFFX_TEST_API:
+          process.env.BLUFFX_TEST_BUILD === "true"
+            ? "http://localhost:4020"
+            : "",
+      },
       url: "http://localhost:5180",
       reuseExistingServer: false,
     },

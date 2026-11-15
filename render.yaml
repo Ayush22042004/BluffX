@@ -47,8 +47,20 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: MAIL_PROVIDER
-        value: resend
-      - key: RESEND_API_KEY
+        value: gmail
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
         sync: false
       - key: MAIL_FROM
         sync: false
+      - key: REPORTS_TO
+        sync: false
+      - key: REPORT_EMAIL_MAX_DAILY
+        value: "20"
+      - key: REPORT_EMAIL_INTERVAL_MS
+        value: "60000"

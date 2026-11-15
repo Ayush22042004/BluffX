@@ -9,7 +9,8 @@ import { Icon, Mask, Fan } from "./components";
 import { BetaVersion } from "./DisplayHints";
 import { socket, clearSeatResume, hasGuestSeat } from "./lib/socket";
 import { ConfirmDeletion } from "./LaunchTools";
-const BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+import { API_URL } from "./lib/endpoints";
+const BASE = API_URL;
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 export async function authRequest(path, body, method = "POST", signal) {

@@ -8,6 +8,9 @@ test("desktop fullscreen recommendation returns after refresh; beta version sits
     /BETA.*v0\.3\.0/,
   );
   await expect(page.locator(".fullscreen-tip")).toBeVisible();
+  const hint = await page.locator(".fullscreen-tip").boundingBox();
+  const header = await page.locator("header").boundingBox();
+  expect(hint.y + hint.height).toBeLessThanOrEqual(header.y + 1);
   await expect(page.locator(".fullscreen-tip kbd")).toHaveText(/F11|⌃ ⌘ F/);
   await page
     .getByRole("button", { name: "Dismiss fullscreen recommendation" })
@@ -19,6 +22,9 @@ test("desktop fullscreen recommendation returns after refresh; beta version sits
     .getByRole("button", { name: "Continue as guest", exact: false })
     .click();
   await expect(page.locator(".brand .beta-version")).toBeVisible();
+  const accountHeader = await page.locator("header").boundingBox();
+  const rail = await page.locator(".utility-rail").boundingBox();
+  expect(rail.y).toBeGreaterThanOrEqual(accountHeader.y + accountHeader.height);
 });
 test("mobile omits desktop key guidance; setup controls stay aligned and operable", async ({
   page,

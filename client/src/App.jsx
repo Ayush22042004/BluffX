@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
+import { manageDialogFocus } from "./lib/dialog-focus";
 import { socket, sendGameAction } from "./lib/socket";
-import TutorialGame from "./TutorialGame";
+import { TutorialGame, Community } from "./LazyScreens";
 import VoiceChat from "./VoiceChat";
+import SpeakingBadge from "./SpeakingBadge";
 import { BetaVersion } from "./DisplayHints";
 import { formatPlayerCode } from "./lib/player-code";
-import Community from "./Community";
 import Preferences, { readPreferences, applyPreferences } from "./Preferences";
 import { BUILD, PrivacyInfo, ReportProblem } from "./LaunchTools";
 import Deadline from "./Deadline";
@@ -73,6 +74,10 @@ export default function App() {
     return () => window.removeEventListener("bluffx:network", fn);
   }, []);
   const [accountNotice, setAccountNotice] = useState("");
+  const [voiceActivity, setVoiceActivity] = useState({
+    roomId: null,
+    seatIds: [],
+  });
   const [kickTarget, setKickTarget] = useState(null);
   const [tutorialBusy, setTutorialBusy] = useState(false);
   const [profile, setProfile] = useState(() =>
@@ -156,38 +161,16 @@ export default function App() {
     if (["community", "records"].includes(modal))
       setSeenSocialRevision(socialRevision);
   }, [modal, socialRevision]);
+  const modalClose = useRef(null);
+  const settingsPending = useRef(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   useEffect(() => {
-    if (!["community", "records"].includes(modal)) return;
-    const previous = document.activeElement,
-      panel = document.querySelector(".social-drawer");
-    panel?.querySelector(".close")?.focus();
-    const key = (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setModal(null);
-        return;
-      }
-      if (e.key !== "Tab" || !panel) return;
-      const controls = [
-        ...panel.querySelectorAll(
-          "button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href]",
-        ),
-      ];
-      const first = controls[0],
-        last = controls.at(-1);
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last?.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first?.focus();
-      }
-    };
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("keydown", key);
-      previous?.focus();
-    };
+    if (!modal) return;
+    return manageDialogFocus(
+      document.querySelector(".modal[role=dialog]"),
+      () => modalClose.current?.(),
+    );
   }, [modal]);
   useEffect(() => {
     if (modal === "scores")
@@ -519,6 +502,8 @@ export default function App() {
     }
   };
   const closeModal = () => {
+    if (tutorialBusy || settingsPending.current) return;
+    setSettingsError("");
     if (
       modal === "tutorial-offer" ||
       (modal === "tutorial" && account?.tutorialStatus === "new")
@@ -526,6 +511,7 @@ export default function App() {
       saveTutorial("skipped");
     else setModal(null);
   };
+  modalClose.current = closeModal;
   const profileContent = (
     <>
       <div className="section-heading">
@@ -782,9 +768,15 @@ export default function App() {
       </section>
     </aside>
   );
+  const isSpeaking = (id) =>
+    voiceActivity.roomId === state?.roomId &&
+    voiceActivity.seatIds.includes(id);
   const chat = (
     <>
-      <VoiceChat state={state?.voiceEnabled === false ? null : state} />
+      <VoiceChat
+        state={state?.voiceEnabled === false ? null : state}
+        onSpeakingChange={setVoiceActivity}
+      />
       <Chat
         messages={messages}
         chatRef={chatRef}
@@ -845,7 +837,7 @@ export default function App() {
         <p className="turn-order-note">↻ Clockwise turn order</p>
         {players.map((p) => (
           <div
-            className={`player-row ${playing && p.id === state.currentTurnId ? "active" : ""}`}
+            className={`player-row ${playing && p.id === state.currentTurnId ? "active" : ""} ${isSpeaking(p.id) ? "voice-speaking" : ""}`}
             key={p.id}
           >
             <Avatar player={p} />
@@ -866,6 +858,7 @@ export default function App() {
                   `${count(p)} cards`
                 )}
                 {p.isBot ? " · AI" : ""}
+                {isSpeaking(p.id) && <SpeakingBadge />}
               </small>
               {!p.isBot && p.connected === false && (
                 <small className="presence-label">
@@ -1515,7 +1508,7 @@ export default function App() {
                   .slice(1)
                   .map((p, i) => (
                     <div
-                      className={`seat clockwise-seat ${playing && p.id === state.currentTurnId ? "active" : ""}`}
+                      className={`seat clockwise-seat ${playing && p.id === state.currentTurnId ? "active" : ""} ${isSpeaking(p.id) ? "voice-speaking" : ""}`}
                       style={opponentPosition(players.length, i)}
                       role="group"
                       aria-label={`Seat ${p.seatNumber}: ${p.name}`}
@@ -1667,7 +1660,10 @@ export default function App() {
                   {host && (
                     <button
                       className="secondary"
-                      onClick={() => setModal("table-settings")}
+                      onClick={() => {
+                        setSettingsError("");
+                        setModal("table-settings");
+                      }}
                     >
                       Table settings
                     </button>
@@ -1700,7 +1696,9 @@ export default function App() {
             ) : playing ? (
               <>
                 <div className="hand-area">
-                  <div className={`your-seat ${mine ? "active" : ""}`}>
+                  <div
+                    className={`your-seat ${mine ? "active" : ""} ${isSpeaking(me.id) ? "voice-speaking" : ""}`}
+                  >
                     <Avatar player={me} />
                     <div>
                       <strong>
@@ -1877,7 +1875,7 @@ export default function App() {
           }}
         >
           <section
-            className={`panel modal ${["community", "records"].includes(modal) ? "social-drawer" : ""} ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""}`}
+            className={`panel modal ${["community", "records"].includes(modal) ? "social-drawer" : ""} ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""} ${modal === "table-settings" ? "table-settings-modal" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-label={
@@ -1885,7 +1883,9 @@ export default function App() {
                 ? "Welcome to BluffX"
                 : modal === "tutorial"
                   ? "Tutorial game"
-                  : modal
+                  : modal === "table-settings"
+                    ? "Table settings"
+                    : modal
             }
             onClick={(e) => e.stopPropagation()}
           >
@@ -1893,56 +1893,153 @@ export default function App() {
               className="close"
               aria-label="Close dialog"
               onClick={closeModal}
-              disabled={tutorialBusy}
+              disabled={tutorialBusy || settingsSaving}
             >
               <Icon name="close" />
             </button>
             {modal === "table-settings" ? (
-              <section>
-                <h2>Table settings</h2>
-                <p>Changing settings asks everyone to ready up again.</p>
+              <section className="table-settings-content">
+                <div className="table-settings-heading">
+                  <span className="table-settings-symbol">
+                    <Icon name="settings" size={27} />
+                  </span>
+                  <div>
+                    <small>YOUR TABLE, YOUR RULES</small>
+                    <h2>Table settings</h2>
+                  </div>
+                </div>
+                <p className="table-settings-intro">
+                  Fine-tune the table before the next deal.
+                </p>
                 <form
-                  onSubmit={(e) => {
+                  className="table-settings-form"
+                  aria-busy={settingsSaving}
+                  onSubmit={async (e) => {
                     e.preventDefault();
+                    if (settingsPending.current) return;
                     const d = new FormData(e.currentTarget);
-                    emit("update_settings", {
-                      maxPlayers: Number(d.get("capacity")),
-                      deckCount: Number(d.get("decks")),
-                      turnSeconds: Number(d.get("seconds")),
-                      preset: "custom",
-                      voiceEnabled: state.voiceEnabled !== false,
-                      aiStyle: state.aiStyle || "balanced",
-                    });
-                    setModal(null);
+                    settingsPending.current = true;
+                    setSettingsSaving(true);
+                    setSettingsError("");
+                    try {
+                      const result = await emit("update_settings", {
+                        maxPlayers: Number(d.get("capacity")),
+                        deckCount: Number(d.get("decks")),
+                        turnSeconds: Number(d.get("seconds")),
+                        preset: "custom",
+                        voiceEnabled: state.voiceEnabled !== false,
+                        aiStyle: state.aiStyle || "balanced",
+                      });
+                      if (result?.ok) setModal(null);
+                      else
+                        setSettingsError(
+                          result?.message ||
+                            "Settings were not confirmed. Your edits are preserved; try again.",
+                        );
+                    } catch {
+                      setSettingsError(
+                        "Unable to save settings. Your edits are preserved; try again.",
+                      );
+                    } finally {
+                      settingsPending.current = false;
+                      setSettingsSaving(false);
+                    }
                   }}
                 >
-                  <Field label="Capacity">
-                    <select name="capacity" defaultValue={state.maxPlayers}>
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="users" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Player capacity</strong>
+                      <small>Total seats, including you.</small>
+                    </span>
+                    <select
+                      aria-label="Player capacity"
+                      name="capacity"
+                      disabled={settingsSaving}
+                      defaultValue={state.maxPlayers}
+                    >
                       {Array.from({ length: 9 }, (_, i) => i + 2)
                         .filter((n) => n >= players.length)
                         .map((n) => (
                           <option key={n} value={n}>
-                            {n}
+                            {n} players
                           </option>
                         ))}
                     </select>
-                  </Field>
-                  <Field label="Decks">
-                    <select name="decks" defaultValue={state.deckCount || 1}>
-                      <option value="1">One (52 cards)</option>
-                      <option value="2">Two (104 cards)</option>
+                  </label>
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="cards" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Card decks</strong>
+                      <small>Choose the size of the deal.</small>
+                    </span>
+                    <select
+                      aria-label="Card decks"
+                      name="decks"
+                      disabled={settingsSaving}
+                      defaultValue={state.deckCount || 1}
+                    >
+                      <option value="1">1 deck · 52 cards</option>
+                      <option value="2">2 decks · 104 cards</option>
                     </select>
-                  </Field>
-                  <Field label="Seconds per turn">
-                    <select name="seconds" defaultValue={state.turnSeconds}>
+                  </label>
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="clock" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Turn duration</strong>
+                      <small>Time each player has to act.</small>
+                    </span>
+                    <select
+                      aria-label="Turn duration"
+                      name="seconds"
+                      disabled={settingsSaving}
+                      defaultValue={state.turnSeconds}
+                    >
                       {[20, 30, 45, 60].map((n) => (
                         <option key={n} value={n}>
-                          {n}
+                          {n} seconds
                         </option>
                       ))}
                     </select>
-                  </Field>
-                  <button className="primary">Save table settings</button>
+                  </label>
+                  <div className="table-settings-note">
+                    <Icon name="refresh" size={18} />
+                    <span>
+                      Saving changes resets ready status. Everyone will need to
+                      ready up again.
+                    </span>
+                  </div>
+                  <div className="table-settings-actions">
+                    {settingsError && (
+                      <p className="table-settings-error" role="alert">
+                        {settingsError}
+                      </p>
+                    )}
+                    <button
+                      className="primary"
+                      type="submit"
+                      disabled={settingsSaving}
+                    >
+                      <Icon name="check" size={19} />
+                      {settingsSaving
+                        ? "Saving settings?"
+                        : "Save table settings"}
+                    </button>
+                    <button
+                      className="table-settings-cancel"
+                      type="button"
+                      disabled={settingsSaving}
+                      onClick={closeModal}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               </section>
             ) : ["community", "records"].includes(modal) ? (

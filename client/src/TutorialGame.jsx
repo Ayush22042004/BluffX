@@ -1,4 +1,5 @@
-﻿import React, { useState } from "react";
+import { manageDialogFocus } from "./lib/dialog-focus";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Avatar,
@@ -67,6 +68,13 @@ export default function TutorialGame({ player, onComplete, busy }) {
     [rank, setRank] = useState("A"),
     [inspecting, setInspecting] = useState(false),
     [reveal, setReveal] = useState(null);
+  useEffect(() => {
+    if (inspecting)
+      return manageDialogFocus(
+        document.querySelector(".tutorial-inspection"),
+        () => setInspecting(false),
+      );
+  }, [inspecting]);
   const hand = step === 0 ? DEAL : step >= 6 ? [] : DEAL.slice(2),
     lesson = LESSONS[step];
   const actionable = step === 0 || step === 5;

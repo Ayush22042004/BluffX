@@ -1,6 +1,14 @@
 import { test, expect } from "@playwright/test";
 
 const sizes = [360, 390, 768, 1024, 1366, 1920];
+let runtimeErrors;
+test.beforeEach(async ({ page }) => {
+  runtimeErrors = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+});
+test.afterEach(() => {
+  expect(runtimeErrors, "No uncaught browser errors during the UI audit").toEqual([]);
+});
 async function inspect(page, label, width, strict = true) {
   const metrics = await page.evaluate(() => {
     const panels = [

@@ -47,6 +47,15 @@ test("auto mode prefers Resend over configured SMTP", () => {
   });
   assert.equal(mailer.mode, "resend");
 });
+
+test('report retries keep the same idempotency key and frozen sender outside the provider payload',async()=>{
+ const calls=[];
+ const mailer=createMailer({env,fetchImpl:async(url,options)=>{calls.push(options);return{ok:true,json:async()=>({id:'same-message'})};}});
+ for(let i=0;i<2;i++)await mailer.send(message,{idempotencyKey:'bluffx-report-reference',from:'BluffX <original@bluffx.example>'});
+ assert.equal(calls[0].headers['Idempotency-Key'],calls[1].headers['Idempotency-Key']);
+ assert.equal(JSON.parse(calls[0].body).from,'BluffX <original@bluffx.example>');
+ assert.equal(JSON.parse(calls[0].body).idempotencyKey,undefined);
+});
 test("provider errors and network failures do not expose provider messages or API keys", async () => {
   for (const fetchImpl of [
     async () => ({
