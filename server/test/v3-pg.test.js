@@ -26,6 +26,18 @@ test(
         },
         body: body ? JSON.stringify(body) : undefined,
       });
+      // Model separate real browsers: retain the signed identity cookie issued
+      // by auth reads instead of collapsing every user into the loopback IP bucket.
+      const cookies = new Map(user.cookie.split(/;\s*/).map((part) => {
+        const index = part.indexOf("=");
+        return [part.slice(0, index), part.slice(index + 1)];
+      }));
+      for (const header of r.headers.getSetCookie()) {
+        const pair = header.split(";", 1)[0];
+        const index = pair.indexOf("=");
+        cookies.set(pair.slice(0, index), pair.slice(index + 1));
+      }
+      user.cookie = [...cookies].map(([key, value]) => `${key}=${value}`).join("; ");
       const text = await r.text();
       let data;
       try {
