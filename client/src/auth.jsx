@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { Icon, Mask, Fan } from "./components";
 import { BetaVersion } from "./DisplayHints";
-import { socket, clearSeatResume, hasGuestSeat } from "./lib/socket";
+import { socket, clearSeatResume, hasGuestSeat, setSocketEnabled } from "./lib/socket";
 import { ConfirmDeletion } from "./LaunchTools";
 import { API_URL } from "./lib/endpoints";
 const BASE = API_URL;
@@ -92,9 +92,8 @@ export function AuthProvider({ children }) {
     };
   }, []);
   useEffect(() => {
-    if (!loading && (user || guest) && !flow) socket.connect();
-    else socket.disconnect();
-    return () => socket.disconnect();
+    setSocketEnabled(!loading && !!(user || guest) && !flow);
+    return () => setSocketEnabled(false);
   }, [loading, user?.id, guest, flow]);
   useEffect(() => {
     const revoked = () => {
@@ -102,7 +101,7 @@ export function AuthProvider({ children }) {
       setUser(null);
       setGuest(false);
       sessionStorage.removeItem("bluffx:guest");
-      socket.disconnect();
+      setSocketEnabled(false);
     };
     socket.on("account_revoked", revoked);
     return () => socket.off("account_revoked", revoked);
@@ -125,7 +124,7 @@ export function AuthProvider({ children }) {
   const openLogin = () => {
     sessionStorage.removeItem("bluffx:guest");
     setGuest(false);
-    socket.disconnect();
+    setSocketEnabled(false);
   };
   const logout = async () => {
     await authRequest("logout", {});
@@ -133,7 +132,7 @@ export function AuthProvider({ children }) {
     setUser(null);
     setGuest(false);
     sessionStorage.removeItem("bluffx:guest");
-    socket.disconnect();
+    setSocketEnabled(false);
   };
   if (loading)
     return (

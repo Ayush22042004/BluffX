@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { manageDialogFocus } from "./lib/dialog-focus";
-import { socket, sendGameAction } from "./lib/socket";
+import { socket, sendGameAction, setSocketEnabled } from "./lib/socket";
 import { TutorialGame, Community } from "./LazyScreens";
 import VoiceChat from "./VoiceChat";
 import SpeakingBadge from "./SpeakingBadge";
@@ -94,6 +94,8 @@ export default function App() {
   );
   const [draft, setDraft] = useState(profile),
     [stats, setStats] = useState(emptyStats);
+  const recordGames = stats.totalGames ?? stats.games;
+  const recordWins = stats.totalWins ?? stats.wins;
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const avatarPreviewRequest = useRef(0);
@@ -256,7 +258,7 @@ export default function App() {
     };
     const onReplaced = (p) => {
       onLeft();
-      socket.disconnect();
+      setSocketEnabled(false);
       setError(p.message);
     };
     const onStats = (event) => refreshResultStats(event?.matchId);
@@ -702,7 +704,7 @@ export default function App() {
               {profile.name ? "Welcome to the club" : "Create your profile"}
             </p>
             <small>
-              {stats.games} games · {stats.wins} wins
+              {recordGames} games · {recordWins} wins
             </small>
             {account && (
               <button
@@ -1333,17 +1335,17 @@ export default function App() {
                   </h3>
                   <div className="record-grid">
                     <div>
-                      <strong>{stats.games}</strong>
+                      <strong>{recordGames}</strong>
                       <small>Games played</small>
                     </div>
                     <div>
-                      <strong>{stats.wins}</strong>
+                      <strong>{recordWins}</strong>
                       <small>Games won</small>
                     </div>
                     <div>
                       <strong>
-                        {stats.games
-                          ? Math.round((stats.wins / stats.games) * 100)
+                        {recordGames
+                          ? Math.round((recordWins / recordGames) * 100)
                           : 0}
                         %
                       </strong>
@@ -1356,8 +1358,8 @@ export default function App() {
                   </div>
                   <p className="muted fine">
                     {account
-                      ? "Verified ranked results across devices."
-                      : "Sign in to build a verified ranked record."}
+                      ? `All completed games saved across devices. Ranked: ${stats.wins} wins / ${stats.games} games.`
+                      : "Sign in to save your game record across devices."}
                   </p>
                 </section>
                 <section className="panel how-card">
@@ -1385,8 +1387,10 @@ export default function App() {
                   <Icon name="trophy" />
                   Player Stats
                 </h3>
-                <Stat label="Games played" value={stats.games} icon="cards" />
-                <Stat label="Wins" value={stats.wins} icon="trophy" />
+                <Stat label="Games played" value={recordGames} icon="cards" />
+                <Stat label="Wins" value={recordWins} icon="trophy" />
+                <Stat label="Ranked games" value={stats.games} icon="cards" />
+                <Stat label="Ranked wins" value={stats.wins} icon="trophy" />
                 <Stat label="Challenges made" value={stats.calls} icon="eye" />
                 <Stat
                   label="Bluffs caught"

@@ -20,6 +20,7 @@ test("report notifications use the configured recipient and omit forged/private 
       created_at: 1,
       description: "My report text",
       build: "test",
+      codes: ["SOCKET_PING_TIMEOUT", "private\nsecret"],
       to: "attacker@example.com",
       hands: ["SECRET"],
       token: "PRIVATE",
@@ -29,6 +30,8 @@ test("report notifications use the configured recipient and omit forged/private 
   );
   assert.equal(m.to, "owner@example.com");
   assert.match(m.text, /My report text/);
+  assert.match(m.text, /Connection diagnostics \(client-reported\): SOCKET_PING_TIMEOUT/);
+  assert.doesNotMatch(m.text, /private\nsecret/);
   assert.match(m.text, /Contact email: Unavailable/);
   assert.doesNotMatch(JSON.stringify(m), /SECRET|PRIVATE|attacker/);
 });

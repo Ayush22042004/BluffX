@@ -59,6 +59,10 @@ class MemoryGameStore {
     const games = rows.filter((r) => r.ranked).length,
       wins = rows.filter((r) => r.ranked && r.won).length;
     return {
+      totalGames: rows.length,
+      totalWins: rows.filter(r => r.won).length,
+      totalWinRate: rows.length ? Math.round(rows.filter(r => r.won).length / rows.length * 100) : 0,
+      unrankedWins: rows.filter(r => !r.ranked && r.won).length,
       games,
       wins,
       losses: games - wins,

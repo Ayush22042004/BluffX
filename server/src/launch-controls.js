@@ -125,6 +125,7 @@ function installLaunch({
             build: `${build}/${typeof data.build === "string" ? data.build.slice(0, 64) : "unknown"}`,
             created_at: createdAt,
             reporter,
+            codes: diagnostic.codes,
           });
       };
       if (

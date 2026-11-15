@@ -21,6 +21,7 @@ function settings(env = process.env) {
   };
 }
 function reportPayload(report, to, from) {
+  const codes = (Array.isArray(report.codes) ? report.codes : []).filter(v => typeof v === "string" && /^[A-Z_]{2,50}$/.test(v)).slice(-10);
   const reporter = report.reporter;
   const contact = reporter
     ? `Player name: ${reporter.name}\nPlayer Code: ${reporter.playerCode}\nContact email: ${reporter.email} (${reporter.emailVerified ? "verified" : "unverified"})`
@@ -29,7 +30,7 @@ function reportPayload(report, to, from) {
     to,
     from,
     subject: `[BluffX] ${report.category} report — ${report.id.slice(0, 8)}`,
-    text: `A player submitted a BluffX report.\n\nReference: ${report.id}\nCategory: ${report.category}\nCreated: ${new Date(report.created_at).toISOString()}\nBuild: ${report.build}\n\n${contact}\n\nPlayer description:\n${report.description}\n\nBluffX did not attach session credentials or a private game snapshot. The description is user-submitted. Manage reports using the private operator tools.`,
+    text: `A player submitted a BluffX report.\n\nReference: ${report.id}\nCategory: ${report.category}\nCreated: ${new Date(report.created_at).toISOString()}\nBuild: ${report.build}\n\n${contact}\n\nConnection diagnostics (client-reported): ${codes.join(", ") || "None attached"}\n\nPlayer description:\n${report.description}\n\nBluffX did not attach session credentials or a private game snapshot. The description is user-submitted. Manage reports using the private operator tools.`,
   };
 }
 class ReportEmail {

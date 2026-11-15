@@ -1,6 +1,8 @@
 import { io } from "socket.io-client";
 import { applyRoomPatch } from "./room-state";
 import { API_URL, SOCKET_UPGRADE } from "./endpoints";
+import { createConnectionLifecycle } from "./connection-lifecycle";
+import { recordConnection } from "./connection-diagnostics";
 
 const SOCKET_URL = API_URL;
 const SEAT_KEY = "bluffx:seat-resume";
@@ -131,11 +133,11 @@ let authoritativeState = null,
   recoveryAttempt = 0,
   retryAfterDisconnect = false;
 function retryConnection() {
-  if (recoveryTimer || !navigator.onLine) return;
+  if (recoveryTimer || !navigator.onLine || !lifecycle.enabled) return;
   recoveryTimer = setTimeout(
     () => {
       recoveryTimer = null;
-      socket.connect();
+      if (lifecycle.enabled) socket.connect();
     },
     Math.min(30000, 1000 * 2 ** Math.min(5, recoveryAttempt++)) *
       (0.8 + Math.random() * 0.4),
@@ -185,6 +187,8 @@ socket.on("connect_error", (error) => {
     retryConnection();
 });
 socket.on("disconnect", (reason) => {
+  const code = { "ping timeout": "SOCKET_PING_TIMEOUT", "transport close": "SOCKET_TRANSPORT_CLOSE", "transport error": "SOCKET_TRANSPORT_ERROR", "io client disconnect": "SOCKET_CLIENT_CLOSED", "io server disconnect": "SOCKET_SERVER_CLOSED" }[reason];
+  if (code) recordConnection(code);
   socket.gameReady = false;
   socket.sendBuffer = [];
   syncPending = false;
@@ -209,21 +213,12 @@ socket.on("seat_expired", () => {
   localStorage.removeItem(SEAT_KEY);
   localStorage.removeItem("bluffx:seat-guest");
 });
-let reconnectOnOnline = false;
-window.addEventListener("offline", () => {
-  reconnectOnOnline = socket.connected || socket.active;
-  socket.disconnect();
-});
-window.addEventListener("online", () => {
-  if (reconnectOnOnline) {
-    reconnectOnOnline = false;
-    socket.connect();
+socket.on("connect", () => recordConnection("SOCKET_CONNECTED"));
+const lifecycle = createConnectionLifecycle(socket, { window, document, navigator, record: recordConnection });
+export function setSocketEnabled(enabled) {
+  if (!enabled) {
+    clearTimeout(recoveryTimer); recoveryTimer = null; retryAfterDisconnect = false;
+    socket.sendBuffer = [];
   }
-});
-window.addEventListener("pagehide", () => {
-  reconnectOnOnline = socket.connected || socket.active;
-  socket.disconnect();
-});
-window.addEventListener("pageshow", (event) => {
-  if (event.persisted && reconnectOnOnline) socket.connect();
-});
+  lifecycle.setEnabled(enabled);
+}

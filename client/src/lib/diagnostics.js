@@ -1,4 +1,5 @@
 import { BUILD } from "./build";
+import { API_URL } from "./endpoints";
 const sent = new Map();
 export function reportDiagnostic(code) {
   if (
@@ -12,7 +13,7 @@ export function reportDiagnostic(code) {
   if (now - (sent.get(code) || 0) < 300000) return;
   sent.set(code, now);
   fetch(
-    `${import.meta.env.VITE_SERVER_URL || "http://localhost:4000"}/auth/report`,
+    `${API_URL}/auth/report`,
     {
       method: "POST",
       credentials: "include",

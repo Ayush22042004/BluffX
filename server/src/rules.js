@@ -17,6 +17,8 @@ function loadRules(env = process.env) {
       throw Error(`Invalid ${name}`);
   return Object.freeze({
     graceMs: integer(env, "GAME_GRACE_MS", 10000),
+    socketPingIntervalMs: integer(env, "GAME_PING_INTERVAL_MS", 25000, 5000, 30000),
+    socketPingTimeoutMs: integer(env, "GAME_PING_TIMEOUT_MS", 20000, 5000, 30000),
     playtestUnranked: env.PLAYTEST_UNRANKED === "true",
     admissionsOpen: env.GAME_ADMISSIONS_OPEN !== "false",
     requireVerifiedRanked: env.RANKED_REQUIRE_VERIFIED !== "false",

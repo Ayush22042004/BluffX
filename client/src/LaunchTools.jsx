@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { authRequest } from "./auth";
 import { socket } from "./lib/socket";
 import { BUILD } from "./lib/build";
+import { connectionDiagnostics } from "./lib/connection-diagnostics";
 export { BUILD };
 export function PrivacyInfo() {
   return (
@@ -78,6 +79,7 @@ export function ReportProblem() {
               category,
               description,
               socketId: socket.id,
+              codes: connectionDiagnostics(),
               build: BUILD,
             });
             setMessage(`Report saved. Reference: ${result.id}`);

@@ -312,14 +312,15 @@ class GameStore {
       SELECT $1,p.player_id,p.user_id,p.placement,p.won,p.forfeit,p.ai_assisted,p.ranked,p.score,p.calls,p.correct_calls,p.outcome_reason
       FROM jsonb_to_recordset($2::jsonb) AS p(player_id text,user_id text,placement integer,won boolean,forfeit boolean,ai_assisted boolean,ranked boolean,score integer,calls integer,correct_calls integer,outcome_reason text)
       ON CONFLICT DO NOTHING RETURNING user_id,ranked,won,forfeit,ai_assisted,calls,correct_calls
-    ) INSERT INTO bx_player_stats(user_id,games,wins,losses,forfeits,ai_assisted,unranked_games,calls,correct_calls,updated_at)
+    ) INSERT INTO bx_player_stats(user_id,games,wins,losses,forfeits,ai_assisted,unranked_games,unranked_wins,calls,correct_calls,updated_at)
       SELECT user_id,CASE WHEN ranked THEN 1 ELSE 0 END,CASE WHEN ranked AND won THEN 1 ELSE 0 END,
         CASE WHEN ranked AND NOT won THEN 1 ELSE 0 END,CASE WHEN forfeit THEN 1 ELSE 0 END,
-        CASE WHEN ai_assisted THEN 1 ELSE 0 END,CASE WHEN ranked THEN 0 ELSE 1 END,calls,correct_calls,$3
+        CASE WHEN ai_assisted THEN 1 ELSE 0 END,CASE WHEN ranked THEN 0 ELSE 1 END,CASE WHEN NOT ranked AND won THEN 1 ELSE 0 END,calls,correct_calls,$3
       FROM inserted WHERE user_id IS NOT NULL
       ON CONFLICT(user_id) DO UPDATE SET games=bx_player_stats.games+EXCLUDED.games,wins=bx_player_stats.wins+EXCLUDED.wins,
         losses=bx_player_stats.losses+EXCLUDED.losses,forfeits=bx_player_stats.forfeits+EXCLUDED.forfeits,
         ai_assisted=bx_player_stats.ai_assisted+EXCLUDED.ai_assisted,unranked_games=bx_player_stats.unranked_games+EXCLUDED.unranked_games,
+        unranked_wins=bx_player_stats.unranked_wins+EXCLUDED.unranked_wins,
         calls=bx_player_stats.calls+EXCLUDED.calls,correct_calls=bx_player_stats.correct_calls+EXCLUDED.correct_calls,updated_at=EXCLUDED.updated_at`,
       [room.matchId, JSON.stringify(resultRows), now],
     );
@@ -366,7 +367,14 @@ class GameStore {
           [userId],
         )
       ).rows[0] || {};
+    const totalGames = Number(r.games || 0) + Number(r.unranked_games || 0);
+    const totalWins = Number(r.wins || 0) + Number(r.unranked_wins || 0);
     return {
+      totalGames,
+      totalWins,
+      totalLosses: Math.max(0, totalGames - totalWins),
+      totalWinRate: totalGames ? Math.round(totalWins / totalGames * 100) : 0,
+      unrankedWins: Number(r.unranked_wins || 0),
       games: Number(r.games || 0),
       wins: Number(r.wins || 0),
       losses: Number(r.losses || 0),

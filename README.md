@@ -1,5 +1,7 @@
 # BluffX
 
+Prepared hotfix: [personal records and mobile recovery](docs/versions/v0.3.0-records-mobile.md), requiring migration 008 before rollout.
+
 Final release checks and deployment handoff: [2026-11-15 audit](docs/versions/v0.3.0-final-audit.md).
 
 Existing Gmail sender setup: [Gmail API over HTTPS](docs/gmail.md).

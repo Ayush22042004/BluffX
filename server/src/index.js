@@ -131,8 +131,8 @@ async function startServer({
       cors: { origin, credentials: true },
       allowRequest: (req, cb) => origin(req.headers.origin, cb),
       maxHttpBufferSize: RULES.maxPayloadBytes,
-      pingInterval: 4000,
-      pingTimeout: 4000,
+      pingInterval: RULES.socketPingIntervalMs,
+      pingTimeout: RULES.socketPingTimeoutMs,
     });
   const limiter = new RateLimiter();
   const metrics = new Diagnostics(
@@ -719,7 +719,13 @@ async function startServer({
       if (typeof ack === "function") ack(response);
     });
     voice.attach(socket);
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
+      const disconnectCode = {
+        "ping timeout": "ping_timeout", "transport close": "transport_close",
+        "transport error": "transport_error", "client namespace disconnect": "client_disconnect",
+        "server namespace disconnect": "server_disconnect",
+      }[reason] || "other";
+      metrics.add("disconnect_" + disconnectCode);
       if (!stopping && !socket.data.replaced && socket.data.roomId)
         service
           .disconnect(socket.data.roomId, actorFor(socket))
