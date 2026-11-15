@@ -4,7 +4,7 @@ Each update gets its own document in this directory. Record implemented behavior
 
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
-| `v0.3.0` combined update rollout | `0.3.0` | Parties, records and mobile fixes combined; coordinated migrations 007/008 and backend-first rollout | [Rollout record](v0.3.0-update-rollout.md) |
+| `v0.3.0` combined update rollout | `0.3.0` | Live on Render/Vercel at `f8932ca`; production migrations 007/008 verified, accounts/results preserved | [Rollout record](v0.3.0-update-rollout.md) |
 | `v0.3.0` records/mobile hotfix | `0.3.0` | Personal totals include saved casual wins; tolerant heartbeat and page recovery; migration 008 required before rollout | [Hotfix implementation record](v0.3.0-records-mobile.md) |
 | `v0.3.0` persistent parties | `0.3.0` | Friend party invites and voice across games; local implementation, migration 007 required before rollout | [Party implementation record](v0.3.0-parties.md) |
 | `v0.3.0` deployment recovery | `0.3.0` | Separate local/production ownership and bootstrap empty CI databases | [Deployment recovery record](v0.3.0-deployment-recovery.md) |
