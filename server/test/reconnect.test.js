@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
-const { io } = require("../../client/node_modules/socket.io-client");
+const { io } = require("./socket-client.cjs");
 const event = (s, name, check = () => true, ms = 16000) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -112,7 +112,7 @@ test("real sockets preserve a disconnected seat, rotate private resume tokens, a
     );
     assert.equal(takeover.pause, null);
     assert.ok(takeover.presenceEvents.some((e) => e.type === "ai_takeover"));
-    assert.equal(takeover.hostId, b.id);
+    assert.equal(takeover.hostId, paused.you.id);
   } finally {
     sockets.forEach((s) => s.disconnect());
     server.kill();

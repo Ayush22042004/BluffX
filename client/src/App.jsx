@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
-import { socket } from "./lib/socket";
-import TutorialGame from "./TutorialGame";
+import { manageDialogFocus } from "./lib/dialog-focus";
+import { socket, sendGameAction, setSocketEnabled } from "./lib/socket";
+import { TutorialGame, Community } from "./LazyScreens";
+import VoiceChat from "./VoiceChat";
+import PartyPanel from "./PartyPanel";
+import SpeakingBadge from "./SpeakingBadge";
+import { BetaVersion } from "./DisplayHints";
+import { formatPlayerCode } from "./lib/player-code";
+import Preferences, { readPreferences, applyPreferences } from "./Preferences";
+import { BUILD, PrivacyInfo, ReportProblem } from "./LaunchTools";
+import Deadline from "./Deadline";
+import { synchronizeClock } from "./lib/clock";
+import { prepareAvatar, uploadAvatar } from "./lib/avatar-upload";
+import { clockwiseSeats, opponentPosition } from "./lib/seating";
 import { useAuth, authRequest } from "./auth";
 import {
   Icon,
@@ -36,19 +48,87 @@ export default function App() {
     logout,
     openLogin,
   } = useAuth();
+  useEffect(() => applyPreferences(readPreferences()), []);
+  const [socialRevision, setSocialRevision] = useState(0);
+  const [playerCard, setPlayerCard] = useState(null);
+  const [seenSocialRevision, setSeenSocialRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setPlayerCard(null);
+    if (account?.id)
+      authRequest("social/card", undefined, "GET")
+        .then((d) => active && setPlayerCard(d))
+        .catch(() => active && setPlayerCard({ unavailable: true }));
+    return () => {
+      active = false;
+    };
+  }, [account?.id, socialRevision]);
+  useEffect(() => {
+    const fn = () => setSocialRevision((n) => n + 1);
+    socket.on("social_updated", fn);
+    return () => socket.off("social_updated", fn);
+  }, []);
+  const [slowConnection, setSlowConnection] = useState(false);
+  useEffect(() => {
+    const fn = (e) => setSlowConnection(!!e.detail.slow);
+    window.addEventListener("bluffx:network", fn);
+    return () => window.removeEventListener("bluffx:network", fn);
+  }, []);
   const [accountNotice, setAccountNotice] = useState("");
+  const [voiceActivity, setVoiceActivity] = useState({
+    roomId: null,
+    seatIds: [],
+  });
+  const [kickTarget, setKickTarget] = useState(null);
   const [tutorialBusy, setTutorialBusy] = useState(false);
-  const statsKey = account ? `bluffx:stats:${account.id}` : "bluffx:stats";
   const [profile, setProfile] = useState(() =>
     account
-      ? { name: account.name, avatar: account.avatar }
+      ? {
+          name: account.name,
+          avatar: account.avatar,
+          avatarId: account.avatarId || null,
+        }
       : read("bluffx:profile", {
           name: localStorage.getItem("bluffx:name") || "",
           avatar: 0,
         }),
   );
   const [draft, setDraft] = useState(profile),
-    [stats, setStats] = useState(() => read(statsKey, emptyStats));
+    [stats, setStats] = useState(emptyStats);
+  const recordGames = stats.totalGames ?? stats.games;
+  const recordWins = stats.totalWins ?? stats.wins;
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const avatarPreviewRequest = useRef(0);
+  const [leaders, setLeaders] = useState({
+    players: [],
+    total: 0,
+    page: 0,
+    limit: 20,
+  });
+  const [leaderRevision, setLeaderRevision] = useState(0);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const seenVersion = useRef({ roomId: null, version: -1 });
+  const lastStatsMatch = useRef(null);
+  const statsFetch = useRef(0);
+  const priorController = useRef(null);
+  const refreshStats = () => {
+    const sequence = ++statsFetch.current;
+    return account
+      ? authRequest("stats", undefined, "GET")
+          .then((data) => {
+            if (sequence === statsFetch.current) setStats(data.stats);
+          })
+          .catch(() => {})
+      : Promise.resolve(setStats(emptyStats));
+  };
+  const refreshResultStats = (matchId) => {
+    if (matchId && lastStatsMatch.current === matchId) return;
+    lastStatsMatch.current = matchId;
+    refreshStats();
+    setLeaderRevision((n) => n + 1);
+  };
   const [screen, setScreen] = useState("home"),
     [state, setState] = useState(null),
     [connected, setConnected] = useState(socket.connected),
@@ -62,62 +142,85 @@ export default function App() {
     [handExpanded, setHandExpanded] = useState(false),
     [rank, setRank] = useState("J"),
     [history, setHistory] = useState([]),
-    [messages, setMessages] = useState([]),
-    [now, setNow] = useState(Date.now());
+    [messages, setMessages] = useState([]);
   const [botCount, setBotCount] = useState(3),
     [maxPlayers, setMaxPlayers] = useState(4),
+    [deckCount, setDeckCount] = useState(1),
+    [preset, setPreset] = useState("classic"),
+    [voiceEnabled, setVoiceEnabled] = useState(true),
+    [aiStyle, setAiStyle] = useState("balanced"),
     [turnSeconds, setTurnSeconds] = useState(30),
     [roomName, setRoomName] = useState(""),
     [password, setPassword] = useState(""),
     [privacy, setPrivacy] = useState("Public"),
     [code, setCode] = useState(""),
     [busy, setBusy] = useState(false);
-  const completed = useRef(new Set(read(`${statsKey}:completed`, []))),
-    countedCalls = useRef(new Set(read(`${statsKey}:calls`, []))),
-    prevPhase = useRef(null),
+  const prevPhase = useRef(null),
     chatRef = useRef(null);
-  const changeStats = (patch) =>
-    setStats((s) => {
-      const next = { ...s };
-      for (const [key, n] of Object.entries(patch))
-        next[key] = (next[key] || 0) + n;
-      localStorage.setItem(statsKey, JSON.stringify(next));
-      return next;
-    });
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 500);
+    refreshStats();
+  }, [account?.id]);
+  useEffect(() => {
+    if (["community", "records"].includes(modal))
+      setSeenSocialRevision(socialRevision);
+  }, [modal, socialRevision]);
+  const modalClose = useRef(null);
+  const settingsPending = useRef(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  useEffect(() => {
+    if (!modal) return;
+    return manageDialogFocus(
+      document.querySelector(".modal[role=dialog]"),
+      () => modalClose.current?.(),
+    );
+  }, [modal]);
+  useEffect(() => {
+    if (modal === "scores")
+      authRequest(`leaderboard?page=${leaders.page}&limit=20`, undefined, "GET")
+        .then(setLeaders)
+        .catch(() => setError("Leaderboard is temporarily unavailable."));
+  }, [modal, leaders.page, leaderRevision]);
+  useEffect(() => {
     const onState = (s) => {
+      if (
+        seenVersion.current.roomId === s.roomId &&
+        s.version < seenVersion.current.version
+      )
+        return;
+      seenVersion.current = { roomId: s.roomId, version: s.version };
+      synchronizeClock(s.serverNow);
+      setSyncing(false);
+      setStorageUnavailable(false);
       setBusy(false);
-      setError("");
+      if (!s.you?.aiTakeover && !s.you?.afkStrikes) setError("");
       setState(s);
-      setSelected((ids) => ids.filter((id) => s.hand.some((c) => c.id === id)));
+      const previous = priorController.current;
+      if (s.you?.aiTakeover && !previous?.ai)
+        setError("AI is temporarily playing your hand.");
+      else if (previous?.ai && !s.you?.aiTakeover)
+        setError("You're back in control.");
+      else if (s.you?.afkStrikes > (previous?.strikes || 0))
+        setError(
+          s.you.controllerState === "HUMAN_AFK_FINAL_WARNING"
+            ? "Final warning: Your next missed turn activates AI."
+            : "You missed your turn. Are you still playing?",
+        );
+      priorController.current = {
+        ai: !!s.you?.aiTakeover,
+        strikes: s.you?.afkStrikes || 0,
+      };
+      // A recovery may finish while no client is connected to receive stats_updated.
+      if (s.phase === "finished") refreshResultStats(s.matchId);
+      setSelected((ids) => {
+        const kept = ids.filter((id) => s.hand.some((c) => c.id === id));
+        return kept.length === ids.length ? ids : kept;
+      });
       if (s.phase === "playing" && prevPhase.current === "finished") {
         setHistory([]);
         setMessages([]);
       }
       prevPhase.current = s.phase;
-      if (s.lastResult?.callerId === s.you.id) {
-        const key = `${s.roomId}:${s.matchId}:${s.lastResult.roundNumber}`;
-        if (!countedCalls.current.has(key)) {
-          countedCalls.current.add(key);
-          localStorage.setItem(
-            `${statsKey}:calls`,
-            JSON.stringify([...countedCalls.current].slice(-200)),
-          );
-          changeStats({ calls: 1, correct: s.lastResult.foundFake ? 1 : 0 });
-        }
-      }
-      if (s.phase === "finished") {
-        const key = `${s.roomId}:${s.matchId}`;
-        if (!completed.current.has(key)) {
-          completed.current.add(key);
-          localStorage.setItem(
-            `${statsKey}:completed`,
-            JSON.stringify([...completed.current].slice(-200)),
-          );
-          changeStats({ games: 1, wins: s.winnerId === s.you.id ? 1 : 0 });
-        }
-      }
     };
     const onResult = (p) =>
       setHistory((h) =>
@@ -137,6 +240,7 @@ export default function App() {
     const onConnect = () => setConnected(true);
     const onDisconnect = () => {
       setConnected(false);
+      setSyncing(true);
       setBusy(false);
       setModal(null);
       setError("Connection lost. Reconnecting to your saved seat...");
@@ -155,10 +259,16 @@ export default function App() {
     };
     const onReplaced = (p) => {
       onLeft();
-      socket.disconnect();
+      setSocketEnabled(false);
       setError(p.message);
     };
+    const onStats = (event) => refreshResultStats(event?.matchId);
+    const onStorage = (status) => setStorageUnavailable(!status.available);
+    const onReady = () => setSyncing(false);
     const onChat = (m) => setMessages((list) => [...list, m].slice(-100));
+    socket.on("stats_updated", onStats);
+    socket.on("storage_status", onStorage);
+    socket.on("server_ready", onReady);
     socket.on("room_state", onState);
     socket.on("bluff_result", onResult);
     socket.on("action_error", onError);
@@ -170,7 +280,9 @@ export default function App() {
     socket.on("seat_expired", onRemoved);
     socket.on("seat_replaced", onReplaced);
     return () => {
-      clearInterval(timer);
+      socket.off("stats_updated", onStats);
+      socket.off("storage_status", onStorage);
+      socket.off("server_ready", onReady);
       socket.off("room_state", onState);
       socket.off("bluff_result", onResult);
       socket.off("action_error", onError);
@@ -239,12 +351,26 @@ export default function App() {
     players = state?.players || [],
     playing = state?.phase === "playing",
     mine =
-      playing && connected && !state.pause && state.currentTurnId === me.id,
+      playing &&
+      connected &&
+      !storageUnavailable &&
+      !syncing &&
+      !me.aiTakeover &&
+      !state.pause &&
+      state.currentTurnId === me.id,
     claim = state?.lastMove,
     count = (p) => state?.playerHandsCount[p.id] || 0,
     host = state?.hostId === me.id;
+  const request = (event, data, snapshot = null) =>
+    sendGameAction(event, data, snapshot).then((result) => {
+      if (!result?.ok) {
+        setBusy(false);
+        setError(result?.message || "Unable to confirm that action.");
+      }
+      return result;
+    });
   const emit = (event, extra = {}) =>
-    socket.emit(event, { roomId: state?.roomId, ...extra });
+    request(event, { roomId: state?.roomId, ...extra }, state);
   const go = (target) => {
     if (state) {
       if (target === "profile") {
@@ -258,25 +384,48 @@ export default function App() {
     if (target === "profile") setDraft(profile);
   };
   const saveProfile = async () => {
+    if (profileSaving || avatarBusy) return;
     const name = draft.name.trim();
     if (!name) return setError("Please choose your player name.");
-    const next = { name: name.slice(0, 20), avatar: draft.avatar };
-    if (account) {
-      try {
-        const data = await authRequest("profile", next, "PATCH");
-        setAccount(data.user);
-      } catch (error) {
-        setError(error.message);
-        return;
+    setProfileSaving(true);
+    try {
+      const next = {
+        name: name.slice(0, 20),
+        avatar: draft.avatar,
+        avatarId: draft.avatarId || null,
+      };
+      if (draft.avatarPreview) {
+        setAvatarBusy(true);
+        try {
+          next.avatarId = await uploadAvatar(draft.avatarPreview);
+        } catch (error) {
+          setError(error.message);
+          return;
+        } finally {
+          setAvatarBusy(false);
+        }
       }
-    } else {
-      localStorage.setItem("bluffx:profile", JSON.stringify(next));
-      localStorage.setItem("bluffx:name", next.name);
+      if (account) {
+        try {
+          const data = await authRequest("profile", next, "PATCH");
+          setAccount(data.user);
+          next.avatarId = data.user.avatarId || null;
+        } catch (error) {
+          setError(error.message);
+          return;
+        }
+      } else {
+        localStorage.setItem("bluffx:profile", JSON.stringify(next));
+        localStorage.setItem("bluffx:name", next.name);
+      }
+      setProfile(next);
+      setDraft(next);
+      if (connected) emit("update_profile", next);
+      setError("Profile saved.");
+      if (modal === "profile") setModal(null);
+    } finally {
+      setProfileSaving(false);
     }
-    setProfile(next);
-    if (connected) socket.emit("update_profile", next);
-    setError("Profile saved.");
-    if (modal === "profile") setModal(null);
   };
   const enter = (ai) => {
     if (!profile.name.trim()) {
@@ -289,9 +438,13 @@ export default function App() {
     setBusy(true);
     setHistory([]);
     setMessages([]);
-    socket.emit(ai ? "create_ai_room" : "create_room", {
+    request(ai ? "create_ai_room" : "create_room", {
       ...profile,
       botCount,
+      deckCount,
+      preset,
+      voiceEnabled,
+      aiStyle,
       maxPlayers,
       turnSeconds,
       roomName: roomName.trim() || `${profile.name}'s Bluff Arena`,
@@ -307,8 +460,24 @@ export default function App() {
     if (!connected) return setError("Waiting for the game server to connect.");
     if (!code.trim()) return setError("Enter your room code.");
     setBusy(true);
-    socket.emit("join_room", { ...profile, roomId: code, password });
+    request("join_room", { ...profile, roomId: code, password });
   };
+  useEffect(() => {
+    const invite = new URLSearchParams(location.search).get("room");
+    if (/^[A-F0-9]{6}$/i.test(invite || "")) {
+      setCode(invite.toUpperCase());
+      setScreen("join");
+    }
+  }, []);
+  const copyInvite = () =>
+    navigator.clipboard
+      ?.writeText(`${location.origin}/?room=${state.roomId}`)
+      .then(() =>
+        setError(
+          "Invitation link copied. Private tables still require a password.",
+        ),
+      )
+      .catch(() => setError(`Room code: ${state.roomId}`));
   const copy = () =>
     navigator.clipboard
       ?.writeText(state.roomId)
@@ -336,6 +505,8 @@ export default function App() {
     }
   };
   const closeModal = () => {
+    if (tutorialBusy || settingsPending.current) return;
+    setSettingsError("");
     if (
       modal === "tutorial-offer" ||
       (modal === "tutorial" && account?.tutorialStatus === "new")
@@ -343,6 +514,7 @@ export default function App() {
       saveTutorial("skipped");
     else setModal(null);
   };
+  modalClose.current = closeModal;
   const profileContent = (
     <>
       <div className="section-heading">
@@ -369,17 +541,72 @@ export default function App() {
               <button
                 type="button"
                 key={avatar}
-                className={draft.avatar === avatar ? "selected" : ""}
+                className={
+                  draft.avatar === avatar &&
+                  !draft.avatarId &&
+                  !draft.avatarPreview
+                    ? "selected"
+                    : ""
+                }
                 aria-label={`Avatar ${avatar + 1}`}
-                aria-pressed={draft.avatar === avatar}
-                onClick={() => setDraft((d) => ({ ...d, avatar }))}
+                aria-pressed={
+                  draft.avatar === avatar &&
+                  !draft.avatarId &&
+                  !draft.avatarPreview
+                }
+                onClick={() => {
+                  avatarPreviewRequest.current++;
+                  setDraft((d) => ({
+                    ...d,
+                    avatar,
+                    avatarId: null,
+                    avatarPreview: null,
+                  }));
+                }}
               >
                 <Avatar player={{ avatar }} />
               </button>
             ))}
           </div>
+          <label className="secondary avatar-upload-button">
+            <Icon name="user" size={18} />{" "}
+            {avatarBusy ? "Preparing photo..." : "Upload your own photo"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              aria-label="Upload avatar photo"
+              disabled={avatarBusy || profileSaving}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                const request = ++avatarPreviewRequest.current;
+                setAvatarBusy(true);
+                try {
+                  const preview = await prepareAvatar(file);
+                  if (request === avatarPreviewRequest.current)
+                    setDraft((d) => ({
+                      ...d,
+                      avatarPreview: preview,
+                      avatarId: null,
+                    }));
+                } catch (error) {
+                  setError(error.message);
+                } finally {
+                  setAvatarBusy(false);
+                }
+              }}
+            />
+          </label>
+          <small className="field-hint">
+            PNG, JPEG or WebP, up to 5 MB. Your photo is cropped to a square.
+          </small>
         </Field>
-        <button className="primary wide" onClick={saveProfile}>
+        <button
+          className="primary wide"
+          onClick={saveProfile}
+          disabled={avatarBusy || profileSaving}
+        >
           <Icon name="check" />
           Save Profile
         </button>
@@ -389,6 +616,24 @@ export default function App() {
             : "Saved on this browser. Sign in to keep your player profile."}
         </p>
         <div className="account-section">
+          {account && (
+            <button
+              className="secondary"
+              onClick={async () => {
+                try {
+                  const result = await authRequest(
+                    "request-account-deletion",
+                    {},
+                  );
+                  setAccountNotice(result.message);
+                } catch (e) {
+                  setAccountNotice(e.message);
+                }
+              }}
+            >
+              Delete account
+            </button>
+          )}
           {account ? (
             <>
               <div className="account-identity">
@@ -460,8 +705,31 @@ export default function App() {
               {profile.name ? "Welcome to the club" : "Create your profile"}
             </p>
             <small>
-              {stats.games} games · {stats.wins} wins
+              {recordGames} games · {recordWins} wins
             </small>
+            {account && (
+              <button
+                className="profile-player-code"
+                aria-label="Copy your player code"
+                disabled={!playerCard?.handle}
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(formatPlayerCode(playerCard.handle))
+                    .then(() => setError("Player code copied."))
+                    .catch(() => setError(formatPlayerCode(playerCard.handle)))
+                }
+              >
+                <small>PLAYER CODE</small>
+                <code>
+                  {playerCard?.handle
+                    ? formatPlayerCode(playerCard.handle)
+                    : playerCard?.unavailable
+                      ? "Unavailable"
+                      : "Loading..."}
+                </code>
+                <Icon name="copy" size={12} />
+              </button>
+            )}
           </div>
         </div>
         <div className="side-nav">
@@ -503,14 +771,23 @@ export default function App() {
       </section>
     </aside>
   );
+  const isSpeaking = (id) =>
+    voiceActivity.roomId === state?.roomId &&
+    voiceActivity.seatIds.includes(id);
   const chat = (
-    <Chat
-      messages={messages}
-      chatRef={chatRef}
-      enabled={!!state}
-      onSend={(text) => emit("send_chat", { text })}
-      title={state?.phase === "lobby" ? "Lobby Chat" : "Table Talk"}
-    />
+    <>
+      <VoiceChat
+        state={state?.voiceEnabled === false ? null : state}
+        onSpeakingChange={setVoiceActivity}
+      />
+      <Chat
+        messages={messages}
+        chatRef={chatRef}
+        enabled={!!state}
+        onSend={(text) => emit("send_chat", { text })}
+        title={state?.phase === "lobby" ? "Lobby Chat" : "Table Talk"}
+      />
+    </>
   );
   const gameSidebar = (
     <aside className="left">
@@ -560,14 +837,18 @@ export default function App() {
           <Icon name="users" />
           Players ({players.length}/{state?.maxPlayers})
         </h3>
+        <p className="turn-order-note">↻ Clockwise turn order</p>
         {players.map((p) => (
           <div
-            className={`player-row ${playing && p.id === state.currentTurnId ? "active" : ""}`}
+            className={`player-row ${playing && p.id === state.currentTurnId ? "active" : ""} ${isSpeaking(p.id) ? "voice-speaking" : ""}`}
             key={p.id}
           >
             <Avatar player={p} />
             <div>
               <strong>
+                <span className="seat-number">
+                  {p.seatNumber || players.indexOf(p) + 1}
+                </span>{" "}
                 {p.id === me.id ? `You (${p.name})` : p.name}{" "}
                 {p.id === state.hostId && <Icon name="crown" size={14} />}
               </strong>
@@ -580,6 +861,7 @@ export default function App() {
                   `${count(p)} cards`
                 )}
                 {p.isBot ? " · AI" : ""}
+                {isSpeaking(p.id) && <SpeakingBadge />}
               </small>
               {!p.isBot && p.connected === false && (
                 <small className="presence-label">
@@ -591,6 +873,18 @@ export default function App() {
             </div>
             {playing && p.id === state.currentTurnId && (
               <span className="turn-tag">Turn</span>
+            )}
+            {host && p.id !== me.id && !p.isBot && (
+              <button
+                className="kick-player"
+                aria-label={`Remove ${p.name}`}
+                onClick={() => {
+                  setKickTarget(p.id);
+                  setModal("kick");
+                }}
+              >
+                Remove
+              </button>
             )}
           </div>
         ))}
@@ -637,9 +931,11 @@ export default function App() {
             height="42"
           />
           Bluff<span>X</span>
+          <BetaVersion />
         </button>
         <nav>
           <button
+            aria-label="Play"
             className={
               !state && ["home", "ai", "join"].includes(screen) ? "active" : ""
             }
@@ -649,6 +945,7 @@ export default function App() {
             <span>Play</span>
           </button>
           <button
+            aria-label="Create Room"
             className={!state && screen === "create" ? "active" : ""}
             onClick={() => go("create")}
           >
@@ -677,25 +974,93 @@ export default function App() {
           <span>⌄</span>
         </button>
       </header>
+      <aside className="utility-rail" aria-label="Social and account tools">
+        <small className="utility-label">YOUR CLUB</small>
+        <PartyPanel account={account} onSignIn={openLogin} />
+        <button
+          className={`utility-friends ${modal === "community" ? "active" : ""}`}
+          aria-label="Friends & Records"
+          onClick={() => {
+            setSeenSocialRevision(socialRevision);
+            setModal("community");
+          }}
+        >
+          <Icon name="users" />
+          <span>Friends</span>
+          {((socialRevision > seenSocialRevision && modal !== "community") ||
+            Number(playerCard?.incoming_requests) > 0 ||
+            Number(playerCard?.incoming_invites) > 0) && (
+            <i aria-label="New social updates" />
+          )}
+        </button>
+        <button
+          aria-label="Open match history"
+          onClick={() => setModal("records")}
+        >
+          <Icon name="trophy" />
+          <span>Records</span>
+        </button>
+        <div className="utility-divider" />
+        <button
+          aria-label="Preferences"
+          onClick={() => setModal("preferences")}
+        >
+          <Icon name="settings" />
+          <span>Settings</span>
+        </button>
+        <button
+          aria-label="Report a problem"
+          onClick={() => setModal("report")}
+        >
+          <Icon name="chat" />
+          <span>Support</span>
+        </button>
+        <button aria-label="Privacy" onClick={() => setModal("privacy")}>
+          <Icon name="lock" />
+          <span>Privacy</span>
+        </button>
+      </aside>
+
       {state &&
-        (!connected || state.pause || players.some((p) => p.aiTakeover)) && (
+        (!connected ||
+          syncing ||
+          storageUnavailable ||
+          state.pause ||
+          players.some((p) => p.aiTakeover || p.afkStrikes)) && (
           <div className="presence-banner" role="status">
-            {!connected
-              ? "You are offline. Reconnecting to your seat..."
-              : state.pause
-                ? `Clock paused - ${players
-                    .filter((p) => p.graceUntil)
-                    .map((p) => p.name)
-                    .join(
-                      ", ",
-                    )} offline - ${Math.max(0, Math.ceil((state.pause.until - now) / 1000))}s to return`
-                : players
-                    .filter((p) => p.aiTakeover)
-                    .map(
-                      (p) =>
-                        `AI is playing for ${p.name} - ${p.aiRoundsRemaining} rounds remaining`,
-                    )
-                    .join(" | ")}
+            {storageUnavailable ? (
+              "Game storage is unavailable. Moves are paused until synchronization succeeds."
+            ) : syncing ? (
+              "Recovering your saved table..."
+            ) : !connected ? (
+              "You are offline. Reconnecting to your seat..."
+            ) : state.pause ? (
+              <>
+                Clock paused -{" "}
+                {players
+                  .filter((p) => p.graceUntil)
+                  .map((p) => p.name)
+                  .join(", ")}{" "}
+                offline - <Deadline deadline={state.pause.until} /> to return
+              </>
+            ) : (
+              players
+                .filter((p) => p.aiTakeover || p.afkStrikes)
+                .map((p) =>
+                  p.aiTakeover
+                    ? `AI is playing for ${p.name} - ${p.aiRoundsRemaining} rounds remaining`
+                    : `${p.name}: ${p.controllerState === "HUMAN_AFK_FINAL_WARNING" ? "Final Warning - One more missed turn triggers AI takeover." : "Possibly AFK"}`,
+                )
+                .join(" | ")
+            )}
+            {me.aiTakeover && me.connected && (
+              <button
+                className="primary"
+                onClick={() => emit("reclaim_control")}
+              >
+                I’m Back — Take Control
+              </button>
+            )}
           </div>
         )}
       {!state ? (
@@ -773,6 +1138,26 @@ export default function App() {
                       onChange={(e) => setRoomName(e.target.value)}
                     />
                   </Field>
+                  <Field label="Match preset">
+                    <select
+                      aria-label="Match preset"
+                      value={preset}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPreset(v);
+                        if (v !== "custom") {
+                          setMaxPlayers(v === "party" ? 10 : 4);
+                          setDeckCount(v === "party" ? 2 : 1);
+                          setTurnSeconds(v === "classic" ? 30 : 20);
+                        }
+                      }}
+                    >
+                      <option value="classic">Classic - balanced table</option>
+                      <option value="party">Party - larger groups</option>
+                      <option value="quick">Quick Match - faster turns</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </Field>
                   <Field label="Game mode">
                     <div className="mode-choice">
                       <Mask size={34} />
@@ -791,7 +1176,9 @@ export default function App() {
                           : "Maximum players"
                       }
                       values={
-                        screen === "ai" ? [1, 2, 3, 4, 5] : [2, 3, 4, 5, 6]
+                        screen === "ai"
+                          ? [1, 2, 3, 4, 5]
+                          : [2, 3, 4, 5, 6, 7, 8, 9, 10]
                       }
                       value={screen === "ai" ? botCount : maxPlayers}
                       onChange={screen === "ai" ? setBotCount : setMaxPlayers}
@@ -802,6 +1189,52 @@ export default function App() {
                         : "Total seats, including you"}
                     </small>
                   </Field>
+                  <Field label="Decks">
+                    <Segments
+                      label="Deck count"
+                      values={["One deck", "Two decks"]}
+                      value={deckCount === 2 ? "Two decks" : "One deck"}
+                      onChange={(v) => setDeckCount(v === "Two decks" ? 2 : 1)}
+                    />
+                    <small className="field-hint">
+                      {deckCount * 52} cards.{" "}
+                      {(screen === "ai" ? botCount + 1 : maxPlayers) >= 6
+                        ? "Two decks recommended for six or more seats."
+                        : "One deck recommended for smaller tables."}{" "}
+                      Your choice stays in effect.
+                    </small>
+                  </Field>
+                  <Field label="Table voice">
+                    <label className="voice-toggle">
+                      <input
+                        type="checkbox"
+                        checked={voiceEnabled}
+                        onChange={(e) => setVoiceEnabled(e.target.checked)}
+                      />{" "}
+                      <span>
+                        <strong>Allow optional voice chat</strong>
+                        <small>
+                          Players choose when to join and turn on their mic.
+                        </small>
+                      </span>
+                    </label>
+                  </Field>
+                  {screen === "ai" && (
+                    <Field label="AI playstyle">
+                      <select
+                        aria-label="AI playstyle"
+                        value={aiStyle}
+                        onChange={(e) => setAiStyle(e.target.value)}
+                      >
+                        <option value="casual">Casual</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="aggressive">Aggressive</option>
+                      </select>
+                      <small>
+                        Styles change risk-taking, never access to hidden cards.
+                      </small>
+                    </Field>
+                  )}
                   <Field label="Time per turn">
                     <Segments
                       label="Turn duration"
@@ -810,7 +1243,7 @@ export default function App() {
                       onChange={setTurnSeconds}
                     />
                     <small className="field-hint">
-                      Seconds to decide. All 52 cards are dealt.
+                      Seconds to decide. All {deckCount * 52} cards are dealt.
                     </small>
                   </Field>
                   {screen === "create" && (
@@ -904,17 +1337,17 @@ export default function App() {
                   </h3>
                   <div className="record-grid">
                     <div>
-                      <strong>{stats.games}</strong>
+                      <strong>{recordGames}</strong>
                       <small>Games played</small>
                     </div>
                     <div>
-                      <strong>{stats.wins}</strong>
+                      <strong>{recordWins}</strong>
                       <small>Games won</small>
                     </div>
                     <div>
                       <strong>
-                        {stats.games
-                          ? Math.round((stats.wins / stats.games) * 100)
+                        {recordGames
+                          ? Math.round((recordWins / recordGames) * 100)
                           : 0}
                         %
                       </strong>
@@ -925,7 +1358,11 @@ export default function App() {
                       <small>Bluffs caught</small>
                     </div>
                   </div>
-                  <p className="muted fine">Your results from this browser.</p>
+                  <p className="muted fine">
+                    {account
+                      ? `All completed games saved across devices. Ranked: ${stats.wins} wins / ${stats.games} games.`
+                      : "Sign in to save your game record across devices."}
+                  </p>
                 </section>
                 <section className="panel how-card">
                   <Mask size={55} />
@@ -952,8 +1389,10 @@ export default function App() {
                   <Icon name="trophy" />
                   Player Stats
                 </h3>
-                <Stat label="Games played" value={stats.games} icon="cards" />
-                <Stat label="Wins" value={stats.wins} icon="trophy" />
+                <Stat label="Games played" value={recordGames} icon="cards" />
+                <Stat label="Wins" value={recordWins} icon="trophy" />
+                <Stat label="Ranked games" value={stats.games} icon="cards" />
+                <Stat label="Ranked wins" value={stats.wins} icon="trophy" />
                 <Stat label="Challenges made" value={stats.calls} icon="eye" />
                 <Stat
                   label="Bluffs caught"
@@ -1009,7 +1448,8 @@ export default function App() {
         <Results
           state={state}
           me={me}
-          onRematch={() => emit("restart_game")}
+          onRematch={() => emit("prepare_rematch")}
+          onRequestRematch={() => emit("request_rematch")}
           onHome={leave}
         />
       ) : (
@@ -1023,11 +1463,19 @@ export default function App() {
               {state.phase === "lobby" && (
                 <>
                   <h1>Pre-Game Lobby</h1>
-                  <p>Take your seat. Bring your best poker face.</p>
+                  <p>Take your seat, join voice, and ready up.</p>
+                  <button
+                    className="lobby-rules-link"
+                    onClick={() => setModal("help")}
+                  >
+                    View table rules
+                  </button>
                 </>
               )}
             </div>
-            <div className="table">
+            <div
+              className={`table seat-count-${players.length} ${players.length > 6 ? "large-table" : ""}`}
+            >
               <div className="table-topline">
                 <span>
                   Round <b>{state.roundNumber}</b>
@@ -1040,57 +1488,72 @@ export default function App() {
                 </span>
                 <span>
                   <Icon name="clock" size={16} />
-                  {!connected
-                    ? "Offline"
-                    : state.pause
-                      ? `Paused ${Math.max(0, Math.ceil((state.pause.until - now) / 1000))}s`
-                      : playing
-                        ? `${Math.max(0, Math.ceil((state.turnEndsAt - now) / 1000))}s`
-                        : state.phase === "lobby"
-                          ? "Waiting"
-                          : "Complete"}
+                  {storageUnavailable ? (
+                    "Game storage is unavailable. Moves are paused until synchronization succeeds."
+                  ) : syncing ? (
+                    "Recovering your saved table..."
+                  ) : !connected ? (
+                    "Offline"
+                  ) : state.pause ? (
+                    <Deadline deadline={state.pause.until} prefix="Paused " />
+                  ) : playing ? (
+                    <Deadline deadline={state.turnEndsAt} />
+                  ) : state.phase === "lobby" ? (
+                    "Waiting"
+                  ) : (
+                    "Complete"
+                  )}
                 </span>
               </div>
               <div className="felt-mark">
                 BLUFF<span>X</span>
                 <small>TRUST NO ONE. PLAY EVERYONE.</small>
               </div>
-              {players
-                .filter((p) => p.id !== me.id)
-                .map((p, i) => (
-                  <div
-                    className={`seat seat-${i} ${playing && p.id === state.currentTurnId ? "active" : ""}`}
-                    key={p.id}
-                  >
-                    <Avatar player={p} />
-                    <div>
-                      <strong>{p.name}</strong>
-                      {!p.isBot && p.connected === false && (
-                        <small className="presence-label">
-                          {p.aiTakeover
-                            ? `AI playing ? ${p.aiRoundsRemaining} rounds`
-                            : "Offline ? reconnecting"}
+              <div className="opponent-seats">
+                {clockwiseSeats(players, me.id)
+                  .slice(1)
+                  .map((p, i) => (
+                    <div
+                      className={`seat clockwise-seat ${playing && p.id === state.currentTurnId ? "active" : ""} ${isSpeaking(p.id) ? "voice-speaking" : ""}`}
+                      style={opponentPosition(players.length, i)}
+                      role="group"
+                      aria-label={`Seat ${p.seatNumber}: ${p.name}`}
+                      data-seat-number={p.seatNumber}
+                      key={p.id}
+                    >
+                      <Avatar player={p} />
+                      <div>
+                        <strong>
+                          <span className="seat-number">{p.seatNumber}</span>{" "}
+                          {p.name}
+                        </strong>
+                        {!p.isBot && p.connected === false && (
+                          <small className="presence-label">
+                            {p.aiTakeover
+                              ? `AI playing ? ${p.aiRoundsRemaining} rounds`
+                              : "Offline ? reconnecting"}
+                          </small>
+                        )}
+                        <small>
+                          {state.phase === "lobby"
+                            ? p.ready
+                              ? "✓ Ready"
+                              : "◷ Not ready"
+                            : `${count(p)} cards`}
                         </small>
+                        <div className="seat-bars">▰▰▰▰▰</div>
+                      </div>
+                      <div className="seat-cards">
+                        <Back small />
+                        <Back small />
+                        <Back small />
+                      </div>
+                      {playing && p.id === state.currentTurnId && (
+                        <label>TURN</label>
                       )}
-                      <small>
-                        {state.phase === "lobby"
-                          ? p.ready
-                            ? "✓ Ready"
-                            : "◷ Not ready"
-                          : `${count(p)} cards`}
-                      </small>
-                      <div className="seat-bars">▰▰▰▰▰</div>
                     </div>
-                    <div className="seat-cards">
-                      <Back small />
-                      <Back small />
-                      <Back small />
-                    </div>
-                    {playing && p.id === state.currentTurnId && (
-                      <label>TURN</label>
-                    )}
-                  </div>
-                ))}
+                  ))}
+              </div>
               <div className="table-center">
                 {state.phase === "lobby" ? (
                   <>
@@ -1108,11 +1571,31 @@ export default function App() {
                       </small>
                     </div>
                   </>
+                ) : state.phase === "provisional" ? (
+                  <div className="round-result">
+                    <div className="overline">AI-ASSISTED FINISH</div>
+                    <h2>Waiting for the player to return</h2>
+                    <p>
+                      <Deadline
+                        deadline={state.provisional.deadline}
+                        suffix=""
+                      />
+                      s left. AI-assisted victories are unranked. If the player
+                      does not return, their seat forfeits and the table
+                      continues.
+                    </p>
+                  </div>
                 ) : state.phase === "round_result" ? (
                   <RoundResult
                     result={state.lastResult}
                     host={host}
-                    paused={!!state.pause || !connected}
+                    paused={
+                      !!state.pause ||
+                      !connected ||
+                      storageUnavailable ||
+                      syncing
+                    }
+                    deadline={state.resultDeadline}
                     onContinue={() => emit("continue_round")}
                   />
                 ) : (
@@ -1157,6 +1640,7 @@ export default function App() {
                   <Avatar player={me} large />
                   <div>
                     <strong>
+                      <span className="seat-number">{me.seatNumber}</span>{" "}
                       {me.name} {host && <Icon name="crown" size={18} />}
                     </strong>
                     <small className={me.ready ? "green" : "gold"}>
@@ -1175,13 +1659,31 @@ export default function App() {
                   </span>
                   <span>
                     <Icon name="cards" />
-                    52-card deck
+                    {(state.deckCount || 1) * 52}-card deck
                   </span>
                 </div>
                 <div className="lobby-actions">
-                  <button className="secondary" onClick={copy}>
+                  {host && (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setSettingsError("");
+                        setModal("table-settings");
+                      }}
+                    >
+                      Table settings
+                    </button>
+                  )}
+                  <button className="secondary" onClick={copyInvite}>
                     <Icon name="copy" />
-                    Invite Friends
+                    Copy Invitation Link
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => emit("set_ready", { ready: !me.ready })}
+                  >
+                    {me.ready ? "Not Ready" : "Ready Up"} (
+                    {players.filter((p) => p.ready).length}/{players.length})
                   </button>
                   {host ? (
                     <button
@@ -1194,24 +1696,21 @@ export default function App() {
                       <Icon name="play" />
                       Start Match
                     </button>
-                  ) : (
-                    <button
-                      className="primary"
-                      onClick={() => emit("set_ready", { ready: !me.ready })}
-                    >
-                      <Icon name="check" />
-                      {me.ready ? "Not Ready" : "Ready Up"}
-                    </button>
-                  )}
+                  ) : null}
                 </div>
               </>
             ) : playing ? (
               <>
                 <div className="hand-area">
-                  <div className={`your-seat ${mine ? "active" : ""}`}>
+                  <div
+                    className={`your-seat ${mine ? "active" : ""} ${isSpeaking(me.id) ? "voice-speaking" : ""}`}
+                  >
                     <Avatar player={me} />
                     <div>
-                      <strong>You ({me.name})</strong>
+                      <strong>
+                        <span className="seat-number">{me.seatNumber}</span> You
+                        ({me.name})
+                      </strong>
                       <small>
                         {state.hand.length} cards {mine ? "· Your turn" : ""}
                       </small>
@@ -1225,25 +1724,29 @@ export default function App() {
                       setSelected((current) =>
                         current.includes(id)
                           ? current.filter((cardId) => cardId !== id)
-                          : [...current, id],
+                          : current.length < (state.rules?.maxCards || 4)
+                            ? [...current, id]
+                            : current,
                       )
                     }
                   />
-                  {state.hand.length > 0 && (
-                    <button
-                      className="hand-toggle"
-                      aria-pressed={handExpanded}
-                      onClick={() => setHandExpanded((value) => !value)}
-                    >
-                      {handExpanded ? "Fan view" : "Show all cards"}
-                    </button>
-                  )}
                   <div className="hand-caption">
-                    {state.hand.length === 0
-                      ? "FINAL CLAIM · Waiting for the table to pass or challenge"
-                      : selected.length
-                        ? `${selected.length} selected · Click a card again to deselect`
-                        : "YOUR HAND · Select cards to play face down"}
+                    <span>
+                      {state.hand.length === 0
+                        ? "FINAL CLAIM · Waiting for the table to pass or challenge"
+                        : selected.length
+                          ? `${selected.length} selected · Click a card again to deselect`
+                          : "YOUR HAND · Select cards to play face down"}
+                    </span>
+                    {state.hand.length > 0 && (
+                      <button
+                        className="hand-toggle"
+                        aria-pressed={handExpanded}
+                        onClick={() => setHandExpanded((value) => !value)}
+                      >
+                        {handExpanded ? "Fan view" : "Show all cards"}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {!state.pendingWinnerId && (mine || state.roundRank) && (
@@ -1281,6 +1784,9 @@ export default function App() {
                   <button
                     className="bluff-action"
                     disabled={
+                      storageUnavailable ||
+                      syncing ||
+                      me.aiTakeover ||
                       !connected ||
                       !!state.pause ||
                       !claim ||
@@ -1348,10 +1854,18 @@ export default function App() {
         </main>
       )}
       <footer>
+        <div className="footer-tools">
+          <small>Build {BUILD}</small>
+        </div>
         <span>♧ BLUFFX SOCIAL CLUB</span>
         <span>Good cards help. A good bluff wins.</span>
         <span className={connected ? "green" : "gold"}>
-          ● {connected ? "Connected" : "Connecting to server"}
+          ●{" "}
+          {connected
+            ? slowConnection
+              ? "Slow action responses"
+              : "Connected"
+            : "Connecting to server"}
         </span>
       </footer>
       {error && (
@@ -1361,13 +1875,13 @@ export default function App() {
       )}
       {modal && (
         <div
-          className="modal-backdrop"
+          className={`modal-backdrop ${["community", "records"].includes(modal) ? "social-backdrop" : ""}`}
           onClick={() => {
             if (!["tutorial", "tutorial-offer"].includes(modal)) closeModal();
           }}
         >
           <section
-            className={`panel modal ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""}`}
+            className={`panel modal ${["community", "records"].includes(modal) ? "social-drawer" : ""} ${modal === "profile" ? "profile-modal" : ""} ${modal === "tutorial" ? "tutorial-modal" : ""} ${modal === "table-settings" ? "table-settings-modal" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-label={
@@ -1375,7 +1889,9 @@ export default function App() {
                 ? "Welcome to BluffX"
                 : modal === "tutorial"
                   ? "Tutorial game"
-                  : modal
+                  : modal === "table-settings"
+                    ? "Table settings"
+                    : modal
             }
             onClick={(e) => e.stopPropagation()}
           >
@@ -1383,11 +1899,223 @@ export default function App() {
               className="close"
               aria-label="Close dialog"
               onClick={closeModal}
-              disabled={tutorialBusy}
+              disabled={tutorialBusy || settingsSaving}
             >
               <Icon name="close" />
             </button>
-            {modal === "tutorial-offer" ? (
+            {modal === "table-settings" ? (
+              <section className="table-settings-content">
+                <div className="table-settings-heading">
+                  <span className="table-settings-symbol">
+                    <Icon name="settings" size={27} />
+                  </span>
+                  <div>
+                    <small>YOUR TABLE, YOUR RULES</small>
+                    <h2>Table settings</h2>
+                  </div>
+                </div>
+                <p className="table-settings-intro">
+                  Fine-tune the table before the next deal.
+                </p>
+                <form
+                  className="table-settings-form"
+                  aria-busy={settingsSaving}
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (settingsPending.current) return;
+                    const d = new FormData(e.currentTarget);
+                    settingsPending.current = true;
+                    setSettingsSaving(true);
+                    setSettingsError("");
+                    try {
+                      const result = await emit("update_settings", {
+                        maxPlayers: Number(d.get("capacity")),
+                        deckCount: Number(d.get("decks")),
+                        turnSeconds: Number(d.get("seconds")),
+                        preset: "custom",
+                        voiceEnabled: state.voiceEnabled !== false,
+                        aiStyle: state.aiStyle || "balanced",
+                      });
+                      if (result?.ok) setModal(null);
+                      else
+                        setSettingsError(
+                          result?.message ||
+                            "Settings were not confirmed. Your edits are preserved; try again.",
+                        );
+                    } catch {
+                      setSettingsError(
+                        "Unable to save settings. Your edits are preserved; try again.",
+                      );
+                    } finally {
+                      settingsPending.current = false;
+                      setSettingsSaving(false);
+                    }
+                  }}
+                >
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="users" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Player capacity</strong>
+                      <small>Total seats, including you.</small>
+                    </span>
+                    <select
+                      aria-label="Player capacity"
+                      name="capacity"
+                      disabled={settingsSaving}
+                      defaultValue={state.maxPlayers}
+                    >
+                      {Array.from({ length: 9 }, (_, i) => i + 2)
+                        .filter((n) => n >= players.length)
+                        .map((n) => (
+                          <option key={n} value={n}>
+                            {n} players
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="cards" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Card decks</strong>
+                      <small>Choose the size of the deal.</small>
+                    </span>
+                    <select
+                      aria-label="Card decks"
+                      name="decks"
+                      disabled={settingsSaving}
+                      defaultValue={state.deckCount || 1}
+                    >
+                      <option value="1">1 deck · 52 cards</option>
+                      <option value="2">2 decks · 104 cards</option>
+                    </select>
+                  </label>
+                  <label className="table-setting-row">
+                    <span className="table-setting-icon">
+                      <Icon name="clock" />
+                    </span>
+                    <span className="table-setting-copy">
+                      <strong>Turn duration</strong>
+                      <small>Time each player has to act.</small>
+                    </span>
+                    <select
+                      aria-label="Turn duration"
+                      name="seconds"
+                      disabled={settingsSaving}
+                      defaultValue={state.turnSeconds}
+                    >
+                      {[20, 30, 45, 60].map((n) => (
+                        <option key={n} value={n}>
+                          {n} seconds
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="table-settings-note">
+                    <Icon name="refresh" size={18} />
+                    <span>
+                      Saving changes resets ready status. Everyone will need to
+                      ready up again.
+                    </span>
+                  </div>
+                  <div className="table-settings-actions">
+                    {settingsError && (
+                      <p className="table-settings-error" role="alert">
+                        {settingsError}
+                      </p>
+                    )}
+                    <button
+                      className="primary"
+                      type="submit"
+                      disabled={settingsSaving}
+                    >
+                      <Icon name="check" size={19} />
+                      {settingsSaving
+                        ? "Saving settings?"
+                        : "Save table settings"}
+                    </button>
+                    <button
+                      className="table-settings-cancel"
+                      type="button"
+                      disabled={settingsSaving}
+                      onClick={closeModal}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </section>
+            ) : ["community", "records"].includes(modal) ? (
+              !account ? (
+                <section className="social-signin">
+                  <Icon name="users" size={40} />
+                  <h2>Your friends. Your table.</h2>
+                  <p>
+                    Sign in to get your own Player Code, send friend requests
+                    and see your match records.
+                  </p>
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      if (state) {
+                        setError("Leave your current table before signing in.");
+                        return;
+                      }
+                      setModal(null);
+                      openLogin();
+                    }}
+                  >
+                    Sign in to connect
+                  </button>
+                </section>
+              ) : (
+                <Community
+                  key={modal}
+                  initial={modal === "records" ? "history" : "friends"}
+                  playerName={account.name}
+                  playerCode={playerCard?.handle}
+                  revision={socialRevision}
+                  roomId={state?.roomId}
+                  onInvite={(room) => {
+                    if (state) {
+                      setError(
+                        "Leave your current table before joining another.",
+                      );
+                      return;
+                    }
+                    setCode(room);
+                    setScreen("join");
+                    setModal(null);
+                  }}
+                />
+              )
+            ) : modal === "preferences" ? (
+              <Preferences />
+            ) : modal === "report" ? (
+              <ReportProblem />
+            ) : modal === "privacy" ? (
+              <PrivacyInfo />
+            ) : modal === "kick" ? (
+              <>
+                <h2>Remove this player?</h2>
+                <p>
+                  They leave immediately and forfeit an active match. Their
+                  account cannot rejoin this table.
+                </p>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    emit("kick_player", { playerId: kickTarget });
+                    setModal(null);
+                  }}
+                >
+                  Remove player
+                </button>
+              </>
+            ) : modal === "tutorial-offer" ? (
               <div className="tutorial-welcome">
                 <span className="tutorial-welcome-icon">
                   <Mask size={58} />
@@ -1461,29 +2189,48 @@ export default function App() {
               />
             ) : modal === "scores" ? (
               <>
-                <div className="overline">
-                  {state ? "THIS TABLE" : "YOUR RECORD"}
-                </div>
-                <h2>{state ? "Table Standings" : "Your Results"}</h2>
-                {state ? (
-                  [...players]
-                    .sort((a, b) => count(a) - count(b))
-                    .map((p, i) => (
-                      <div className="score-row" key={p.id}>
-                        <Avatar player={p} />
-                        <span>
-                          {i + 1}. {p.name}
-                        </span>
-                        <strong>{count(p)} cards</strong>
-                      </div>
-                    ))
-                ) : (
-                  <>
-                    <Stat icon="cards" label="Games" value={stats.games} />
-                    <Stat icon="trophy" label="Wins" value={stats.wins} />
-                    <p>Results are saved in this browser.</p>
-                  </>
+                <div className="overline">VERIFIED PLAYER RECORDS</div>
+                <h2>Leaderboard</h2>
+                {leaders.players.map((p) => (
+                  <div className="score-row" key={p.id}>
+                    <Avatar player={p} />
+                    <span>
+                      {p.rank}. {p.name}
+                      <small>
+                        {p.games} games - {p.losses} losses - {p.winRate}% win
+                        rate
+                      </small>
+                    </span>
+                    <strong>{p.wins} wins</strong>
+                  </div>
+                ))}
+                {!leaders.players.length && (
+                  <p>
+                    No verified competitive results yet. Practice and legacy
+                    browser results are unranked.
+                  </p>
                 )}
+                <div className="leaderboard-pages">
+                  <button
+                    disabled={!leaders.page}
+                    onClick={() =>
+                      setLeaders((l) => ({ ...l, page: l.page - 1 }))
+                    }
+                  >
+                    Previous
+                  </button>
+                  <span>Page {leaders.page + 1}</span>
+                  <button
+                    disabled={
+                      (leaders.page + 1) * leaders.limit >= leaders.total
+                    }
+                    onClick={() =>
+                      setLeaders((l) => ({ ...l, page: l.page + 1 }))
+                    }
+                  >
+                    Next
+                  </button>
+                </div>
               </>
             ) : (
               <>
@@ -1517,8 +2264,9 @@ export default function App() {
                     players.
                   </li>
                   <li>
-                    <b>Play face down.</b> Select cards and choose a rank for a
-                    new pile. Every subsequent claim uses that same rank.
+                    <b>Play face down.</b> Select one to four cards and choose a
+                    rank for a new pile. Every subsequent claim uses that same
+                    rank.
                   </li>
                   <li>
                     <b>Play, pass, or challenge.</b> On your turn you may add a
@@ -1539,8 +2287,45 @@ export default function App() {
                   </li>
                 </ol>
                 <p>
-                  The host continues after each round result. A turn timeout
-                  counts as a pass when there is a claim.
+                  Round results advance automatically after 10 seconds; the host
+                  can advance earlier. A turn timeout counts as a pass when
+                  there is a claim. Miss one turn: Possibly AFK. Miss two: final
+                  warning. Miss three: temporary AI takes over without extra
+                  grace. Use “I’m Back — Take Control” to resume; your current
+                  hand and running timer stay intact. Only a valid human play,
+                  pass or challenge clears strikes. Chat and reconnects do not.
+                </p>
+                <p>
+                  Table Voice is optional. Select Join Voice to listen, then
+                  Unmute Mic to allow microphone access and speak. Muting
+                  releases your microphone while keeping you connected. Deafen
+                  silences other players without muting your mic; each player
+                  has a volume slider. Leaving voice or losing your connection
+                  stops the microphone. Voice activity does not clear AFK
+                  warnings. Audio connects directly between players and is not
+                  recorded by BluffX.
+                </p>
+                <p>
+                  Use Party in the sidebar to stay with friends between games.
+                  Sign in, create a party and invite people from your friend list.
+                  Party voice continues after results and leaving a table; closing
+                  its panel does not mute you. Check the Party button for your mic
+                  status. You can use table voice or party voice at one time.
+                  Refreshing stops your microphone; rejoin voice when you return.
+                </p>
+                <p>
+                  Each seat has a cumulative 10-second reconnect budget per
+                  round, then up to three rounds of temporary AI. Brief returns
+                  do not reset that allowance. Renewal requires 60 seconds
+                  continuously online and a valid turn action. An absent AI
+                  winner has 10 seconds to return for an unranked AI-assisted
+                  result; otherwise that seat forfeits. Only matches with at
+                  least two verified accounts, no practice bots, and a human
+                  winner without AI assistance affect competitive wins. Guest
+                  and practice results are unranked. Casual playtest tables do
+                  not affect rankings. A pair of accounts can contribute at most{" "}
+                  {authConfig?.rankedPairDailyLimit || 3} ranked results per UTC
+                  day; additional matches remain casual.
                 </p>
               </>
             )}

@@ -1,0 +1,52 @@
+/* Color roles: each theme combines a neutral foundation with distinct accents. */
+:root {
+  --palette-base: #080f1c;
+  --palette-surface: #101c30;
+  --palette-raised: #17283e;
+  --palette-line: #33465e;
+  --palette-text: #edf3fa;
+  --palette-muted: #acbacd;
+  --palette-primary: #50aaff;
+  --palette-primary-deep: #174fa5;
+  --palette-secondary: #bb8dff;
+  --palette-secondary-deep: #422178;
+  --palette-tertiary: #55dfed;
+  --palette-tertiary-deep: #125265;
+  --palette-highlight: #f5cb8a;
+  --palette-glow: #409dff38;
+  --palette-scene: #173854;
+}
+:root[data-theme="pink"] {
+  --palette-base: #100918;
+  --palette-surface: #340d2a;
+  --palette-raised: #391131;
+  --palette-line: #85336b;
+  --palette-text: #faf0f5;
+  --palette-muted: #c6b5c7;
+  --palette-primary: #f83998;
+  --palette-primary-deep: #7e1448;
+  --palette-secondary: #c94bea;
+  --palette-secondary-deep: #591879;
+  --palette-tertiary: #f95691;
+  --palette-tertiary-deep: #731b48;
+  --palette-highlight: #ffd269;
+  --palette-glow: #ef198466;
+  --palette-scene: #452139;
+}
+:root[data-theme="emerald"] {
+  --palette-base: #0b1515;
+  --palette-surface: #142626;
+  --palette-raised: #203536;
+  --palette-line: #3c5556;
+  --palette-text: #eff7f1;
+  --palette-muted: #b3c8c0;
+  --palette-primary: #62dfae;
+  --palette-primary-deep: #1a6953;
+  --palette-secondary: #48d9ed;
+  --palette-secondary-deep: #125063;
+  --palette-tertiary: #edae71;
+  --palette-tertiary-deep: #67401f;
+  --palette-highlight: #eed6a0;
+  --palette-glow: #46c79538;
+  --palette-scene: #234640;
+}

@@ -48,6 +48,12 @@ Edit the **same Web application OAuth client** whose ID is in `server/.env`. Und
 
 ## Email delivery
 
+To send from an existing Gmail/Workspace mailbox without an owned sending domain, use [Gmail API setup](gmail.md). The backend uses HTTPS and private owner authorization, separate from player Google sign-in.
+
+For the current alternative provider, follow [Brevo HTTPS setup](brevo.md). It works from the Render backend with the Vercel frontend and supports sender verification by inbox code, subject to provider account approval and sender policies.
+
+For owner-only testing without a domain, report notifications, and the safe email-check command, follow [Resend setup](resend.md).
+
 ### Render: use Resend over HTTPS
 
 Render free web services block outbound SMTP ports 25, 465, and 587. The backend supports the Resend HTTPS API, so verification and password-reset emails do not need SMTP connections.

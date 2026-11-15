@@ -1,0 +1,423 @@
+/* User-selected neon identity. Blend only scenic backgrounds, never player photos or cards. */
+:root {
+  --accent: var(--ui-22b8ff);
+  --accent-bright: var(--ui-73ddff);
+  --accent-glow: var(--ui-159cff55);
+  --surface: var(--ui-071522);
+  accent-color: var(--accent);
+}
+.app,
+.auth-page,
+.table {
+  background-color: var(--ui-07304d);
+  background-blend-mode: normal, luminosity;
+}
+.brand .brand-icon {
+  filter: hue-rotate(var(--logo-hue, 230deg)) saturate(0.95)
+    drop-shadow(0 0 7px var(--ui-22b8ff35));
+}
+.brand > span:not(.beta-version) {
+  color: var(--accent);
+  text-shadow: 0 0 22px var(--accent-glow);
+}
+::selection {
+  background: var(--ui-1676a8);
+  color: #fff;
+}
+
+.theme-picker {
+  border: 0;
+  padding: 0;
+  margin: 24px 0;
+  min-width: 0;
+}
+.theme-picker legend {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.theme-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 12px;
+  border: 1px solid #506575;
+  border-radius: 12px;
+  background: #09131e;
+  cursor: pointer;
+  min-width: 0;
+}
+.theme-option:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 18px var(--accent-glow);
+}
+.theme-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 4px;
+}
+.theme-option input {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.theme-option strong {
+  font-size: 13px;
+  color: #eef5fa;
+}
+.theme-option small {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #bbcbd5;
+}
+.theme-swatch {
+  display: flex;
+  gap: 4px;
+  height: 32px;
+  margin-right: 20px;
+}
+.theme-swatch i {
+  flex: 1;
+  border-radius: 5px;
+  background: var(--preview-accent);
+}
+.theme-swatch i:nth-child(2) {
+  background: var(--preview-mid);
+}
+.theme-swatch i:nth-child(3) {
+  background: var(--preview-dark);
+  border: 1px solid #ffffff24;
+}
+
+.theme-swatch i:nth-child(4) {
+  background: var(--preview-highlight);
+}
+.modal .theme-picker .theme-option {
+  display: flex;
+  margin: 0;
+}
+.modal .theme-picker .theme-option input {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+}
+.modal .preference-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modal .preference-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+@media (max-width: 540px) {
+  .theme-options {
+    grid-template-columns: 1fr;
+  }
+  .theme-option {
+    padding: 14px;
+  }
+  .theme-swatch {
+    width: 100px;
+    height: 24px;
+  }
+}
+
+/* Palette roles separate structure, interaction, secondary detail and rewards. */
+:root {
+  --accent: var(--palette-primary);
+  --accent-bright: var(--palette-secondary);
+  --accent-glow: var(--palette-glow);
+}
+body {
+  background: var(--palette-base);
+  color: var(--palette-text);
+}
+.app,
+.auth-page {
+  background-color: var(--palette-scene);
+}
+header,
+.auth-header {
+  background: linear-gradient(
+    110deg,
+    var(--palette-base),
+    var(--palette-surface)
+  );
+  border-color: var(--palette-line);
+}
+.panel,
+.modal,
+.auth-card,
+.setup-panel,
+.social-backdrop .social-drawer {
+  background: linear-gradient(
+    135deg,
+    var(--palette-surface),
+    var(--palette-base)
+  );
+  border-color: var(--palette-line);
+  color: var(--palette-text);
+}
+.utility-rail,
+.actions {
+  background: var(--palette-base);
+  border-color: var(--palette-line);
+}
+.primary,
+.setup-fields .start-button,
+.auth-submit {
+  background: linear-gradient(
+    125deg,
+    var(--palette-primary-deep),
+    var(--palette-secondary-deep)
+  );
+  border: 1px solid var(--palette-primary);
+  color: #fff;
+  box-shadow:
+    0 5px 20px var(--palette-glow),
+    inset 0 1px 0 #ffffff18;
+}
+nav button.active,
+.sidebar-nav button.active,
+.auth-tabs > button.active {
+  background: linear-gradient(
+    125deg,
+    var(--palette-raised),
+    var(--palette-secondary-deep)
+  );
+  border-color: var(--palette-primary);
+  color: var(--palette-text);
+}
+.setup-fields .segments {
+  background: var(--palette-base);
+  border-color: var(--palette-line);
+}
+.setup-fields .segments button {
+  color: var(--palette-muted);
+}
+.setup-fields .segments button.selected {
+  background: var(--palette-secondary-deep);
+  color: var(--palette-text);
+  box-shadow: inset 0 -2px 0 var(--palette-secondary);
+}
+.setup-fields input:not([type="checkbox"]),
+.setup-fields select,
+.setup-fields .voice-toggle {
+  background: var(--palette-base);
+  border-color: var(--palette-line);
+  color: var(--palette-text);
+}
+.setup-fields .mode-choice {
+  background: var(--palette-raised);
+  border-color: var(--palette-line);
+}
+.setup-fields .mode-choice svg,
+.preview-badges svg,
+.panel h3 > svg {
+  color: var(--palette-secondary);
+}
+.overline,
+.arena-heading > .overline,
+.room-preview .overline {
+  color: var(--palette-highlight);
+}
+.preview-code {
+  background: var(--palette-base);
+  border-color: var(--palette-secondary);
+  box-shadow: 0 0 18px var(--palette-glow);
+}
+.preview-code strong,
+.claim strong,
+.table-topline .rank-pill {
+  color: var(--palette-highlight);
+}
+.utility-rail .utility-friends {
+  color: var(--palette-secondary);
+  border-color: var(--palette-line);
+  background: var(--palette-secondary-deep);
+}
+.theme-option {
+  background: var(--palette-base);
+  border-color: var(--palette-line);
+}
+.theme-option strong {
+  color: var(--palette-text);
+}
+.theme-option small {
+  color: var(--palette-muted);
+}
+.theme-option:has(input:checked) {
+  background: var(--palette-raised);
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline-color: var(--palette-secondary);
+}
+::selection {
+  background: var(--palette-primary-deep);
+  color: #fff;
+}
+
+.play-action {
+  background: linear-gradient(var(--palette-primary-deep), var(--palette-base));
+  border-color: var(--palette-primary) !important;
+  box-shadow:
+    inset 0 0 16px var(--palette-glow),
+    0 0 12px var(--palette-glow);
+}
+.bluff-action {
+  background: linear-gradient(
+    var(--palette-secondary-deep),
+    var(--palette-base)
+  );
+  border-color: var(--palette-highlight) !important;
+  box-shadow: inset 0 0 12px #ffffff0a;
+}
+.bluff-action > svg {
+  color: var(--palette-highlight);
+}
+.pass-action {
+  background: linear-gradient(var(--palette-raised), var(--palette-base));
+  border-color: var(--palette-line) !important;
+}
+.table {
+  background-color: var(--palette-scene);
+}
+
+.home-actions .action-tile {
+  --tile-accent: var(--palette-primary);
+  border-color: var(--tile-accent);
+  background: linear-gradient(
+    150deg,
+    var(--palette-raised),
+    var(--palette-base)
+  );
+  box-shadow:
+    inset 0 1px 0 #ffffff12,
+    0 10px 25px #0006;
+}
+.home-actions .action-tile:nth-child(2) {
+  --tile-accent: var(--palette-secondary);
+}
+.home-actions .action-tile:nth-child(3) {
+  --tile-accent: var(--palette-highlight);
+}
+.home-actions .action-tile > svg {
+  color: var(--tile-accent);
+  filter: drop-shadow(0 0 6px var(--palette-glow));
+}
+.home-actions .action-tile .tile-arrow {
+  background: var(--palette-raised);
+  border-color: var(--tile-accent);
+  color: var(--tile-accent);
+  box-shadow: none;
+}
+.home-actions .action-tile:hover {
+  background: linear-gradient(
+    150deg,
+    var(--palette-secondary-deep),
+    var(--palette-base)
+  );
+}
+
+/* Rich multicolor identities, with the original warm v3 lounge for Pink. */
+:root[data-theme="pink"] .app,
+:root[data-theme="pink"] .auth-page,
+:root[data-theme="pink"] .table {
+  background-blend-mode: normal;
+}
+:root[data-theme="pink"] header {
+  background: linear-gradient(100deg, #100911, #1d081b 70%, #0e0912);
+}
+:root[data-theme="pink"] .panel,
+:root[data-theme="pink"] .modal,
+:root[data-theme="pink"] .auth-card {
+  background: linear-gradient(135deg, #340d2adf, #100918f2 70%);
+}
+:root[data-theme="pink"] .brand > span:not(.beta-version) {
+  color: #ff526d;
+  text-shadow: 0 0 25px #f0385d77;
+}
+.home-actions .action-tile {
+  --tile-deep: var(--palette-primary-deep);
+  background: linear-gradient(
+    155deg,
+    var(--tile-deep),
+    var(--palette-base) 66%,
+    var(--tile-deep)
+  );
+  box-shadow:
+    inset 0 0 22px var(--palette-glow),
+    0 0 15px var(--palette-glow),
+    0 12px 30px #0007;
+}
+.home-actions .action-tile:nth-child(2) {
+  --tile-deep: var(--palette-secondary-deep);
+}
+.home-actions .action-tile:nth-child(3) {
+  --tile-accent: var(--palette-tertiary);
+  --tile-deep: var(--palette-tertiary-deep);
+}
+.home-actions .action-tile > svg {
+  filter: drop-shadow(0 0 10px var(--tile-accent));
+}
+.home-actions .action-tile .tile-arrow {
+  background: linear-gradient(var(--tile-deep), var(--palette-raised));
+}
+.home-actions .action-tile:hover {
+  background: linear-gradient(155deg, var(--tile-deep), var(--palette-raised));
+}
+.utility-rail .utility-friends {
+  color: var(--palette-tertiary);
+  background: var(--palette-tertiary-deep);
+}
+.setup-fields .mode-choice svg,
+.preview-badges svg {
+  color: var(--palette-secondary);
+}
+.primary,
+.setup-fields .start-button,
+.auth-submit {
+  background: linear-gradient(
+    115deg,
+    var(--palette-secondary-deep),
+    var(--palette-primary-deep)
+  );
+}
+.theme-preview-blue {
+  --preview-accent: #50aaff;
+  --preview-mid: #bb8dff;
+  --preview-dark: #55dfed;
+  --preview-highlight: #f5cb8a;
+}
+.theme-preview-pink {
+  --preview-accent: #f83998;
+  --preview-mid: #c94bea;
+  --preview-dark: #f95691;
+  --preview-highlight: #ffd269;
+}
+.theme-preview-emerald {
+  --preview-accent: #62dfae;
+  --preview-mid: #48d9ed;
+  --preview-dark: #edae71;
+  --preview-highlight: #eed6a0;
+}

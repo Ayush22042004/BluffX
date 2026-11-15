@@ -7,11 +7,33 @@ services:
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health
+    # A database advisory lock fences out additional instances. Use a maintenance
+    # handoff when deploying; the old owner must stop before the new one starts.
     envVars:
       - key: NODE_VERSION
-        value: 24.11.0
+        value: 24
       - key: NODE_ENV
         value: production
+      - key: GAME_AUTO_MIGRATE
+        value: "false"
+      - key: PLAYTEST_UNRANKED
+        value: "true"
+      - key: PLAYTEST_INVITE_ONLY
+        value: "true"
+      - key: PLAYTEST_ALLOWED_EMAILS
+        sync: false
+      - key: OPS_API_TOKEN
+        generateValue: true
+      - key: RATE_IDENTITY_SECRET
+        generateValue: true
+      - key: VOICE_TURN_PROVIDER
+        value: cloudflare
+      - key: CLOUDFLARE_TURN_KEY_ID
+        sync: false
+      - key: CLOUDFLARE_TURN_API_TOKEN
+        sync: false
+      - key: GAME_MAX_ROOMS
+        value: "20"
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_URL_UNPOOLED
@@ -25,8 +47,20 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: MAIL_PROVIDER
-        value: resend
-      - key: RESEND_API_KEY
+        value: gmail
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
         sync: false
       - key: MAIL_FROM
         sync: false
+      - key: REPORTS_TO
+        sync: false
+      - key: REPORT_EMAIL_MAX_DAILY
+        value: "20"
+      - key: REPORT_EMAIL_INTERVAL_MS
+        value: "60000"

@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import Deadline from "./Deadline";
+import { avatarUrl } from "./lib/avatar-upload";
 export const RANKS = [
   "A",
   "2",
@@ -22,6 +24,7 @@ export const rankName = (r, count) => {
 };
 export function Icon({ name = "cards", size = 24, ...props }) {
   const paths = {
+    settings: "M18.93 9.13L19.34 10.44L21.78 9.92L21.78 14.08L19.34 13.56L18.93 14.87L18.29 16.08L20.39 17.45L17.45 20.39L16.08 18.29L14.87 18.93L13.56 19.34L14.08 21.78L9.92 21.78L10.44 19.34L9.13 18.93L7.92 18.29L6.55 20.39L3.61 17.45L5.71 16.08L5.07 14.87L4.66 13.56L2.22 14.08L2.22 9.92L4.66 10.44L5.07 9.13L5.71 7.92L3.61 6.55L6.55 3.61L7.92 5.71L9.13 5.07L10.44 4.66L9.92 2.22L14.08 2.22L13.56 4.66L14.87 5.07L16.08 5.71L17.45 3.61L20.39 6.55L18.29 7.92Z M15.2 12a3.2 3.2 0 1 0-6.4 0a3.2 3.2 0 1 0 6.4 0Z",
     home: "m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10",
     users:
       "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
@@ -75,12 +78,26 @@ export function Mask({ size = 32 }) {
       />
       <path
         d="m11 21 10 4c-2 7-10 3-10-4Zm26 0-10 4c2 7 10 3 10-4ZM18 34q6-5 12 0"
-        fill="#230d25"
+        fill="#071b2a"
       />
     </svg>
   );
 }
 export function Avatar({ player, large = false, onClick }) {
+  const finalWarning = player?.controllerState
+    ? player.controllerState === "HUMAN_AFK_FINAL_WARNING"
+    : player?.afkStrikes >= 2;
+  const status = player?.isBot
+    ? null
+    : player?.aiTakeover
+      ? "AI Playing"
+      : player?.connected === false
+        ? "Offline"
+        : finalWarning
+          ? "Final Warning"
+          : player?.afkStrikes
+            ? "Possibly AFK"
+            : null;
   return (
     <span
       role={onClick ? "button" : undefined}
@@ -90,7 +107,35 @@ export function Avatar({ player, large = false, onClick }) {
       aria-label={onClick ? "Open my profile" : undefined}
       className={`avatar portrait-${player?.avatar || 0} ${large ? "large" : ""}`}
     >
+      {(player?.avatarPreview || player?.avatarId) && (
+        <img
+          className="custom-avatar-image"
+          src={player.avatarPreview || avatarUrl(player.avatarId)}
+          alt=""
+          decoding="async"
+          draggable={false}
+          onError={(e) => {
+            e.currentTarget.hidden = true;
+          }}
+          onLoad={(e) => {
+            e.currentTarget.hidden = false;
+          }}
+        />
+      )}
       <i className={player?.connected === false ? "offline-dot" : ""} />
+      {status && (
+        <em
+          className={`controller-indicator controller-${player.aiTakeover ? "ai" : player.connected === false ? "offline" : player.afkStrikes >= 2 ? "final" : "warning"}`}
+          aria-label={status}
+          title={status}
+        >
+          {player.aiTakeover
+            ? "AI"
+            : player.connected === false
+              ? "OFF"
+              : "AFK"}
+        </em>
+      )}
     </span>
   );
 }
@@ -327,7 +372,14 @@ export function Challenge({ claim, onConfirm }) {
     </>
   );
 }
-export function RoundResult({ result, host, onContinue, paused = false }) {
+export function RoundResult({
+  result,
+  host,
+  onContinue,
+  paused = false,
+  deadline,
+  now = Date.now(),
+}) {
   return (
     <div className="round-result">
       <div className="overline">REVEAL & ROUND RESULT</div>
@@ -339,6 +391,11 @@ export function RoundResult({ result, host, onContinue, paused = false }) {
             : "They Told the Truth!"}
       </h1>
       <p>{result?.message}</p>
+      {deadline && (
+        <p className="round-countdown" role="status">
+          Next round starts in <Deadline deadline={deadline} />
+        </p>
+      )}
       {!!result?.revealCards?.length && (
         <div className="result-cards">
           {result.revealCards.map((card) => (
@@ -365,26 +422,36 @@ export function RoundResult({ result, host, onContinue, paused = false }) {
           Next Round
         </button>
       ) : (
-        <p className="muted">Waiting for the host to start the next round…</p>
+        <p className="muted">
+          The next round starts automatically. The host can advance early.
+        </p>
       )}
     </div>
   );
 }
-export function Results({ state, me, onRematch, onHome }) {
-  const winner = state.players.find((p) => p.id === state.winnerId),
+export function Results({ state, me, onRematch, onRequestRematch, onHome }) {
+  const winner = (state.standings || state.players).find(
+      (p) => p.id === state.winnerId,
+    ),
     won = winner?.id === me.id;
-  const standings = [...state.players].sort((a, b) =>
-    a.id === winner?.id
-      ? -1
-      : b.id === winner?.id
-        ? 1
-        : state.playerHandsCount[a.id] - state.playerHandsCount[b.id],
-  );
+  const standings =
+    state.standings ||
+    [...state.players].sort((a, b) =>
+      a.id === winner?.id
+        ? -1
+        : b.id === winner?.id
+          ? 1
+          : state.playerHandsCount[a.id] - state.playerHandsCount[b.id],
+    );
   return (
     <main className="results-page">
       <div className="win-heading">
         <Icon name="crown" size={66} />
         <p className="overline">GAME COMPLETE · FINAL RESULT</p>
+        <p className="result-verification">
+          {state.resultRanked ? "Verified ranked result" : "Unranked result"}
+          {winner?.aiAssisted ? " - AI assisted" : ""}
+        </p>
         <h1>{won ? `You (${me.name}) Win!` : `${winner?.name} Wins!`}</h1>
         <p>
           {state.winReason === "last_player"
@@ -399,8 +466,35 @@ export function Results({ state, me, onRematch, onHome }) {
           <Icon name="cards" />
           Match Summary
         </h3>
-        <Stat icon="flag" label="Rounds played" value={state.roundNumber} />
-        <Stat icon="users" label="Players" value={state.players.length} />
+        <Stat
+          icon="flag"
+          label="Completed rounds"
+          value={state.matchSummary?.completedRounds ?? state.roundNumber}
+        />
+        <Stat
+          icon="cards"
+          label="Deck mode"
+          value={`${state.deckCount || 1} deck${state.deckCount === 2 ? "s" : ""}`}
+        />
+        {state.matchSummary && (
+          <>
+            <Stat
+              icon="clock"
+              label="Duration"
+              value={`${Math.floor(state.matchSummary.durationMs / 60000)}m ${Math.floor(state.matchSummary.durationMs / 1000) % 60}s`}
+            />
+            <Stat
+              icon="trophy"
+              label="Challenges won / lost"
+              value={`${state.matchSummary.challengesWon} / ${state.matchSummary.challengesLost}`}
+            />
+          </>
+        )}
+        <Stat
+          icon="users"
+          label="Players"
+          value={state.standings?.length || state.players.length}
+        />
         <Stat
           icon="cards"
           label="Your cards left"
@@ -432,26 +526,74 @@ export function Results({ state, me, onRematch, onHome }) {
         </h3>
         {standings.map((p, i) => (
           <div className={`standing ${i === 0 ? "winner" : ""}`} key={p.id}>
-            <strong className="position">{i + 1}</strong>
+            <strong className="position">{p.placement || i + 1}</strong>
             <Avatar player={p} />
             <div>
               <b>{p.id === me.id ? `You (${p.name})` : p.name}</b>
               <small>
-                {i === 0 ? "Winner" : p.isBot ? "AI opponent" : "Player"}
+                {p.forfeit
+                  ? "Forfeit"
+                  : p.aiAssisted
+                    ? "AI assisted"
+                    : i === 0
+                      ? "Winner"
+                      : p.isBot
+                        ? "AI opponent"
+                        : "Player"}
               </small>
             </div>
             <strong>
-              {state.playerHandsCount[p.id]}
+              {p.forfeit ? "-" : state.playerHandsCount[p.id]}
               <small>cards left</small>
             </strong>
           </div>
         ))}
       </section>
+      {state.matchSummary && (
+        <section className="panel match-insights">
+          <h3>Your match insights</h3>
+          {state.matchSummary.players
+            .filter((p) => p.id === me.id)
+            .map((p) => (
+              <p key={p.id}>
+                {p.cardsPlayed} cards played ? {p.claims} claims ?{" "}
+                {p.challengesWon}/{p.challenges} correct challenges ?{" "}
+                {p.unchallengedBluffs} unchallenged bluffs
+              </p>
+            ))}
+          {state.matchSummary.awards.map((a, i) => (
+            <p key={i}>
+              <strong>{a.title}</strong> ?{" "}
+              {
+                state.matchSummary.players.find((p) => p.id === a.playerId)
+                  ?.name
+              }{" "}
+              ({a.count})
+            </p>
+          ))}
+          <small>
+            Awards are cosmetic. Master Bluffer counts false claims that
+            survived all passes.
+          </small>
+        </section>
+      )}
+      <p role="status">
+        {state.rematchRequests?.length || 0} player(s) requested another match.
+      </p>
       <div className="result-actions">
+        {state.hostId !== me.id && (
+          <button
+            className="primary"
+            disabled={state.rematchRequests?.includes(me.id)}
+            onClick={onRequestRematch}
+          >
+            Request rematch
+          </button>
+        )}
         {state.hostId === me.id && (
           <button className="primary" onClick={onRematch}>
             <Icon name="refresh" />
-            Rematch<small>Same group. Fresh deck.</small>
+            Rematch<small>Reopen lobby. Everyone confirms ready.</small>
           </button>
         )}
         <button className="secondary" onClick={onHome}>

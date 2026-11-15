@@ -1,20 +1,42 @@
 {
   "name": "bluffx-workspace",
   "private": true,
-  "version": "0.2.0-beta.1",
+  "version": "0.3.0",
   "scripts": {
     "dev": "concurrently -n server,client -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
     "test": "node --test server/test/*.test.js",
-    "test:e2e": "npm --prefix client run test:e2e"
+    "test:e2e": "npm --prefix client run test:e2e",
+    "test:party": "node --require ./server/test/party-browser-env.cjs client/node_modules/@playwright/test/cli.js test --config client/playwright.config.cjs party.spec.js",
+    "test:postgres": "node server/test/prepare-postgres.cjs && node --require ./server/test/real-db-env.cjs --test --test-concurrency=1 server/test/durable-pg.test.js server/test/restart-pg.test.js server/test/launch-pg.test.js server/test/v3-pg.test.js server/test/report-email-pg.test.js server/test/records-pg.test.js server/test/party-pg.test.js",
+    "db:migrate-games": "npm --prefix server run db:migrate-games",
+    "test:load": "node --max-old-space-size=128 server/scripts/load-game.js",
+    "check:release": "node server/scripts/check-release.js",
+    "test:turn": "node server/scripts/check-turn.js",
+    "check:email": "node server/scripts/check-email.js",
+    "lint": "eslint server/src server/scripts client/src client/vite.config.js",
+    "optimize:art": "node server/scripts/optimize-art.js",
+    "check:migrations": "node server/scripts/check-migrations.js",
+    "gmail:authorize": "node server/scripts/authorize-gmail.js"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0"
   },
   "dependencies": {
     "@neon/config": "^1.14.0",
     "@neon/env": "^2.1.3"
+  },
+  "overrides": {
+    "eslint": {
+      "minimatch": "^11.0.8"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.8"
+    }
   }
 }

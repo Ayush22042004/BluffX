@@ -1,0 +1,169 @@
+/* Lobby table settings: readable rows rather than a compressed horizontal form. */
+.table-settings-modal {
+  width: min(560px, calc(100vw - 32px));
+  padding: 30px;
+}
+.table-settings-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 24px;
+}
+.table-settings-symbol {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border: 1px solid var(--palette-primary);
+  border-radius: 14px;
+  color: var(--palette-primary);
+  background: var(--palette-raised);
+}
+.table-settings-heading small {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  color: var(--palette-secondary);
+}
+.table-settings-heading h2 {
+  margin: 4px 0 0;
+  font-size: 31px;
+  line-height: 1.1;
+}
+.table-settings-intro {
+  margin: 18px 0 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--palette-muted);
+}
+.modal .table-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.modal .table-settings-form .table-setting-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 172px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 14px;
+  margin: 0;
+  border: 1px solid var(--palette-line);
+  border-radius: 12px;
+  background: var(--palette-base);
+}
+.table-setting-icon {
+  color: var(--palette-secondary);
+  display: grid;
+  place-items: center;
+}
+.table-setting-copy strong {
+  display: block;
+  font-size: 13px;
+  color: var(--palette-text);
+  line-height: 1.4;
+}
+.table-setting-copy small {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--palette-muted);
+  line-height: 1.5;
+}
+.table-settings-form .table-setting-row select {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 0 10px;
+  margin: 0;
+  border: 1px solid var(--palette-line);
+  border-radius: 8px;
+  background: var(--palette-raised);
+  color: var(--palette-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.table-settings-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 2px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--palette-muted);
+}
+.table-settings-note svg {
+  flex-shrink: 0;
+  color: var(--palette-highlight);
+  margin-top: 1px;
+}
+.table-settings-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+.table-settings-actions .primary {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+.table-settings-cancel {
+  width: 100%;
+  min-height: 40px;
+  color: var(--palette-muted);
+  font-size: 12px;
+}
+.table-settings-cancel:hover {
+  color: var(--palette-text);
+}
+@media (max-width: 540px) {
+  .table-settings-modal {
+    padding: 24px 20px;
+  }
+  .table-settings-heading h2 {
+    font-size: 28px;
+  }
+  .modal .table-settings-form .table-setting-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    padding: 14px;
+  }
+  .table-settings-form .table-setting-row select {
+    grid-column: 2;
+  }
+}
+
+/* One overlay scale: nested evidence must be above its parent modal. */
+:root {
+  --layer-hint: 150;
+  --layer-dialog: 200;
+  --layer-evidence: 220;
+}
+.modal-backdrop {
+  z-index: var(--layer-dialog);
+}
+.tutorial-inspection {
+  z-index: var(--layer-evidence);
+}
+.fullscreen-tip {
+  z-index: var(--layer-hint);
+  pointer-events: none;
+}
+.fullscreen-tip button {
+  pointer-events: auto;
+}
+.table-settings-error {
+  margin: 0 0 8px;
+  color: #ffb9b9;
+  font-size: 12px;
+  line-height: 1.6;
+}

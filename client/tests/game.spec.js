@@ -151,7 +151,12 @@ test("mobile home and profile fit viewport", async ({ page }) => {
 test("final claim ends the match, records the win, and supports rematch", async ({
   page,
 }) => {
-  const { io } = await import("socket.io-client");
+  const { io } = await import("../../server/test/socket-client.cjs");
+  // Countdown rendering follows server time, even when the browser clock is wrong.
+  await page.addInitScript(() => {
+    const actualNow = Date.now.bind(Date);
+    Date.now = () => actualNow() + 86400000;
+  });
   let guest;
   const waitFor = (s, name, predicate = () => true) =>
     new Promise((resolve, reject) => {
@@ -229,6 +234,9 @@ test("final claim ends the match, records the win, and supports rematch", async 
     await expect(
       page.getByRole("heading", { name: "Bluff Caught!", exact: true }),
     ).toBeVisible();
+    await expect(page.locator(".round-countdown")).toHaveText(
+      /Next round starts in (10|9|8)s/,
+    );
     await page.screenshot({
       path: "tests/artifacts/round-result.png",
       fullPage: true,
@@ -242,33 +250,65 @@ test("final claim ends the match, records the win, and supports rematch", async 
       declaredRank: "J",
     });
     await expect(page.locator(".your-seat")).toContainText("Your turn");
-    await page
-      .locator(".hand .card")
-      .evaluateAll((cards) => cards.forEach((card) => card.click()));
-    pending = waitFor(guest, "room_state", (s) => !!s.pendingWinnerId);
-    await page.getByRole("button", { name: /Play Face Down/ }).click();
-    await pending;
-    await expect(page.locator(".hand .card")).toHaveCount(0);
-    await expect(
-      page.getByText("Final claim — pass or challenge to decide the winner."),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Play Face Down/ }),
-    ).toBeDisabled();
-    guest.emit("pass_bluff", { roomId: code });
+    let remaining = 26;
+    while (remaining > 0) {
+      const last = remaining <= 4;
+      await expect(page.locator(".your-seat")).toContainText("Your turn");
+      await expect(page.locator(".hand .card")).toHaveCount(remaining);
+      await page
+        .locator(".hand .card")
+        .evaluateAll((cards) =>
+          cards.slice(0, 4).forEach((card) => card.click()),
+        );
+      pending = waitFor(
+        guest,
+        "room_state",
+        (s) => !!s.lastMove && s.lastMove.playerId !== s.you.id,
+      );
+      await page.getByRole("button", { name: /Play Face Down/ }).click();
+      const claimed = await pending;
+      remaining -= Math.min(4, remaining);
+      await expect(page.locator(".hand .card")).toHaveCount(remaining);
+      if (last) {
+        expect(claimed.pendingWinnerId).toBeTruthy();
+        await expect(
+          page.getByRole("button", { name: /Play Face Down/ }),
+        ).toBeDisabled();
+      }
+      guest.emit("pass_bluff", { roomId: code });
+      if (!last) {
+        await expect(
+          page.getByRole("button", { name: "Next Round", exact: true }),
+        ).toBeVisible();
+        pending = waitFor(
+          guest,
+          "room_state",
+          (s) => s.phase === "playing" && s.roundNumber > claimed.roundNumber,
+        );
+        await page
+          .getByRole("button", { name: "Next Round", exact: true })
+          .click();
+        await pending;
+      }
+    }
     await expect(
       page.getByRole("heading", { name: "You (Winner) Win!", exact: true }),
     ).toBeVisible();
+    expect(
+      await page.evaluate(() => localStorage.getItem("bluffx:stats")),
+    ).toBeNull();
     await page.screenshot({
       path: "tests/artifacts/winner.png",
       fullPage: true,
     });
-    expect(
-      await page.evaluate(
-        () => JSON.parse(localStorage.getItem("bluffx:stats")).wins,
-      ),
-    ).toBe(1);
+    pending = waitFor(guest, "room_state", s => s.phase === "lobby");
     await page.getByRole("button", { name: /Rematch/ }).click();
+    await pending;
+    pending = waitFor(guest,"room_state",s => s.you.ready);
+    guest.emit("set_ready",{roomId:code,ready:true});
+    await pending;
+    await page.getByRole("button",{name:/Ready Up/}).click();
+    await page.getByRole("button",{name:"Start Match",exact:true}).click();
     await expect(page.locator(".hand .card")).toHaveCount(26);
   } finally {
     guest?.disconnect();

@@ -1,0 +1,185 @@
+const test = require("node:test"),
+  assert = require("node:assert/strict"),
+  express = require("express");
+const { newDb } = require("pg-mem");
+const { createAuth } = require("../src/auth");
+const { installLaunch } = require("../src/launch-controls");
+test("reports are sanitized and private; email-confirmed deletion revokes sessions and retries durable erasure", async () => {
+  const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg(),
+    pool = new Pool(),
+    mail = [];
+  let failErasure = true,
+    erased = [];
+  const queuedReports = [];
+  let failQueue = false;
+  const auth = await createAuth({
+    pool,
+    production: false,
+    allowedOrigins: new Set(["http://localhost:5180"]),
+    mailer: { mode: "local", send: async (m) => mail.push(m) },
+    onErase: async (id) => {
+      if (failErasure) throw Error("test outage");
+      erased.push(id);
+    },
+  });
+  const app = express();
+  app.use("/auth", auth.router);
+  installLaunch({
+    app,
+    auth,
+    service: { rooms: new Map() },
+    io: { sockets: { sockets: new Map() } },
+    metrics: { add() {}, report: () => ({}) },
+    build: "test-build",
+    reportEmail: {
+      enabled: true,
+      enqueue: async (tx, report) => {
+        if (failQueue) throw Error("queue persistence failed");
+        queuedReports.push(report);
+      },
+      kick() {},
+    },
+  });
+  const server = await new Promise((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    }),
+    base = "http://127.0.0.1:" + server.address().port;
+  const call = async (path, body, cookie) => {
+    const r = await fetch(base + "/auth/" + path, {
+      method: body ? "POST" : "GET",
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(cookie ? { cookie } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return {
+      status: r.status,
+      data: await r.json(),
+      cookie: r.headers.get("set-cookie"),
+    };
+  };
+  try {
+    const account = await call("signup", {
+      name: "Erase Account",
+      email: "erase@example.com",
+      password: "ErasePassword123!",
+    });
+    assert.equal(account.status, 201);
+    const report = await call(
+      "report",
+      {
+        category: "voice",
+        description: "Voice stopped during a test.",
+        roomId: "FORGED",
+        matchId: "FORGED",
+        hands: ["SECRET_CARD"],
+        reporter: { name: "Forged", email: "attacker@example.com", playerCode: "FAKE" },
+        codes: ["STALE_TURN", "private token"],
+      },
+      account.cookie,
+    );
+    assert.equal(report.status, 201);
+    const row = await auth.database.get(
+      "SELECT * FROM bx_reports WHERE id=?",
+      report.data.id,
+    );
+    assert.equal(row.room_code, null);
+    assert.equal(row.match_id, null);
+    assert.equal(JSON.stringify(row).includes("SECRET_CARD"), false);
+    assert.deepEqual(row.diagnostic.codes, ["STALE_TURN"]);
+    assert.equal(queuedReports[0].id, report.data.id);
+    assert.equal(queuedReports[0].reporter.name, "Erase Account");
+    assert.equal(queuedReports[0].reporter.email, "erase@example.com");
+    assert.equal(queuedReports[0].reporter.emailVerified, false);
+    assert.match(queuedReports[0].reporter.playerCode, /^[A-F0-9]{4}(-[A-F0-9]{4}){3}$/);
+    const profile = await auth.database.get("SELECT handle FROM bx_social_profiles WHERE user_id=?", row.user_id);
+    assert.equal(queuedReports[0].reporter.playerCode.replaceAll("-", "").toLowerCase(), profile.handle);
+    assert.ok(!JSON.stringify(queuedReports[0]).includes("attacker@example.com"));
+    assert.ok(!JSON.stringify(queuedReports[0]).includes("SECRET_CARD"));
+    failQueue = true;
+    assert.equal(
+      (
+        await call(
+          "report",
+          {
+            category: "other",
+            description: "Test an outbox persistence failure.",
+          },
+          account.cookie,
+        )
+      ).status,
+      503,
+    );
+    // pg-mem cannot roll back writes; actual rollback is verified in report-email-pg.test.js.
+    failQueue = false;
+    assert.equal((await call("ops/reports")).status, 403);
+    assert.equal(
+      (await call("confirm-account-deletion", { token: "bad" })).status,
+      400,
+    );
+    assert.equal(
+      (await call("request-account-deletion", {}, account.cookie)).status,
+      200,
+    );
+    const message = mail.find((m) => m.subject.includes("deletion"));
+    const token = new URL(message.text.match(/http[^\s]+/)[0]).searchParams.get(
+      "token",
+    );
+    assert.equal(
+      (await call("confirm-account-deletion", { token })).status,
+      200,
+    );
+    assert.equal((await call("session", null, account.cookie)).data.user, null);
+    assert.equal(
+      (
+        await call("login", {
+          email: "erase@example.com",
+          password: "ErasePassword123!",
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (await call("confirm-account-deletion", { token })).status,
+      400,
+    );
+    assert.equal(
+      Number(
+        (await auth.database.get("SELECT COUNT(*) AS n FROM account_erasure"))
+          .n,
+      ),
+      1,
+    );
+    await auth.close();
+    failErasure = false;
+    const restarted = await createAuth({
+      pool,
+      production: false,
+      mailer: { mode: "local", send: async () => {} },
+      onErase: async (id) => erased.push(id),
+    });
+    assert.equal(erased.length, 1);
+    assert.equal(
+      Number(
+        (await restarted.database.get("SELECT COUNT(*) AS n FROM users")).n,
+      ),
+      0,
+    );
+    assert.equal(
+      Number(
+        (
+          await restarted.database.get(
+            "SELECT COUNT(*) AS n FROM account_erasure",
+          )
+        ).n,
+      ),
+      0,
+    );
+    await restarted.close();
+  } finally {
+    await auth.close();
+    await new Promise((resolve) => server.close(resolve));
+    await pool.end();
+  }
+});

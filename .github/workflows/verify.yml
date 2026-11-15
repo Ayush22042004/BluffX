@@ -1,0 +1,61 @@
+name: Verify release
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bluffx_ci
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: bluffx_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bluffx_ci -d bluffx_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+      - run: npm ci
+      - run: npm --prefix server ci
+      - run: npm --prefix client ci
+      - run: npm run lint
+      - run: npm audit
+      - run: node server/scripts/check-release.js
+      - run: npm --prefix server audit --omit=dev
+      - run: npm --prefix client audit --omit=dev
+      - run: npm test
+      - run: npm run test:postgres
+        env:
+          TEST_DATABASE_URL: postgresql://bluffx_ci:isolated-ci-only@127.0.0.1:5432/bluffx_ci
+          TEST_DATABASE_HOST: 127.0.0.1
+      - run: npm run build
+      - run: npx --prefix client playwright install --with-deps chrome
+      - run: npm run test:e2e
+      - run: npm run test:party
+        env:
+          TEST_DATABASE_URL: postgresql://bluffx_ci:isolated-ci-only@127.0.0.1:5432/bluffx_ci
+          TEST_DATABASE_HOST: 127.0.0.1
+      - run: npm --prefix client run test:e2e -- build-runtime.spec.js auth.spec.js
+        env:
+          BLUFFX_TEST_BUILD: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failures
+          path: client/test-results
+          retention-days: 7
