@@ -18,7 +18,7 @@ import {
 const request = (event, data = {}) =>
   new Promise((resolve, reject) => {
     if (!socket.connected || !socket.gameReady)
-      return reject(Error("Reconnect to your table before joining voice."));
+      return reject(Error("Reconnect to BluffX before joining voice."));
     socket
       .timeout(8000)
       .emit(event, data, (err, reply) =>
@@ -40,7 +40,7 @@ function signalPeer(s, to, signal) {
   });
 }
 
-export default function VoiceChat({ state, onSpeakingChange }) {
+export default function VoiceChat({ state, onSpeakingChange, onStatusChange, scope = "table" }) {
   const [joined, setJoined] = useState(false),
     [busy, setBusy] = useState(false);
   const [muted, setMuted] = useState(true),
@@ -58,6 +58,8 @@ export default function VoiceChat({ state, onSpeakingChange }) {
     generation = useRef(0);
   const roomId = state?.roomId;
   const publishedActivity = useRef("");
+  useEffect(() => { onStatusChange?.({ joined, muted, deafened }); }, [joined, muted, deafened, onStatusChange]);
+  useEffect(() => () => onStatusChange?.(null), [onStatusChange]);
   useEffect(() => {
     const seatIds =
       joined && session.current?.roomId === roomId
@@ -98,7 +100,7 @@ export default function VoiceChat({ state, onSpeakingChange }) {
       s.stream.getTracks().forEach((t) => t.stop());
       s.context?.close().catch(() => {});
     }
-    if (notify && socket.connected) socket.emit("voice_leave", {});
+    if (notify && s && socket.connected) socket.emit("voice_leave", { voiceId: s.voiceId });
     setJoined(false);
     setBusy(false);
     setPeers([]);
@@ -380,9 +382,10 @@ export default function VoiceChat({ state, onSpeakingChange }) {
           "Voice needs HTTPS and a browser that supports microphone access.",
         );
       stream = new MediaStream();
-      const result = await request("voice_join");
+      const result = await request("voice_join", { scope });
       if (generation.current !== attempt) {
         stream.getTracks().forEach((t) => t.stop());
+        socket.emit("voice_leave", { voiceId: result.peers.find(p => p.socketId === socket.id)?.voiceId });
         return;
       }
       const Context = window.AudioContext || window.webkitAudioContext;
@@ -503,13 +506,13 @@ export default function VoiceChat({ state, onSpeakingChange }) {
           releaseMicrophone(s);
           s.muted = true;
           setMuted(true);
-          request("voice_mute", { muted: true }).catch(() => {});
+          request("voice_mute", { muted: true, voiceId: s.voiceId }).catch(() => {});
           setError(
             "Microphone disconnected. You can still listen; unmute to reconnect your mic.",
           );
         };
       }
-      await request("voice_mute", { muted: next });
+      await request("voice_mute", { muted: next, voiceId: s.voiceId });
       if (session.current !== s) return;
       s.muted = next;
       s.stream.getAudioTracks().forEach((track) => (track.enabled = !next));
@@ -519,7 +522,7 @@ export default function VoiceChat({ state, onSpeakingChange }) {
         releaseMicrophone(s);
         s.muted = true;
         setMuted(true);
-        request("voice_mute", { muted: true }).catch(() => {});
+        request("voice_mute", { muted: true, voiceId: s.voiceId }).catch(() => {});
         setError(
           e.name === "NotAllowedError"
             ? "Microphone permission was denied. You can still listen; allow access and unmute to try again."
@@ -534,9 +537,9 @@ export default function VoiceChat({ state, onSpeakingChange }) {
 
   if (!roomId) return null;
   return (
-    <section className="panel voice-panel" aria-label="Table voice chat">
+    <section className="panel voice-panel" aria-label={scope === "party" ? "Party voice chat" : "Table voice chat"}>
       <div className="voice-heading">
-        <strong>🎙 Table Voice</strong>
+        <strong>🎙 {scope === "party" ? "Party Voice" : "Table Voice"}</strong>
         <span>
           {joined ? `${peers.length} connected` : "Opt-in · Audio only"}
         </span>
@@ -544,6 +547,7 @@ export default function VoiceChat({ state, onSpeakingChange }) {
       {!joined ? (
         <>
           <p>Join to listen. Your microphone opens only when you unmute.</p>
+          <small>Joining {scope === "party" ? "party" : "table"} voice switches you out of your other voice channel.</small>
           <button className="secondary" disabled={busy} onClick={join}>
             {busy ? "Connecting microphone…" : "Join Voice"}
           </button>

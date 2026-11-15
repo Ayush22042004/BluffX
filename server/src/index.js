@@ -19,6 +19,7 @@ const {
 } = require("./protocol");
 const { RULES } = require("./rules");
 const { createVoice } = require("./voice");
+const { createParty, PARTY_EVENTS } = require("./party");
 const {
   ReportEmail,
   settings: reportEmailSettings,
@@ -140,7 +141,7 @@ async function startServer({
   );
   const delivery = new RoomDelivery();
   const storageNotices = new Map();
-  let scheduler, voice;
+  let scheduler, voice, party;
   let requestRecovery;
   const recovery = new Promise((resolve) => {
     requestRecovery = resolve;
@@ -235,7 +236,10 @@ async function startServer({
         for (const s of io.sockets.sockets.values())
           if (s.data.accountId === id) s.emit("social_updated");
       },
-      onErase: (id) => service.eraseAccount(id),
+      onErase: async (id) => {
+        await party?.removeAccount(id);
+        await service.eraseAccount(id);
+      },
       onRevoke: (id, sessionHash) => {
         for (const socket of io.sockets.sockets.values())
           if (
@@ -354,6 +358,8 @@ async function startServer({
     };
   }
   voice = createVoice({ io, service, actorFor, limiter });
+  party = createParty({ db: auth.database, io, limiter, onChange: id => voice.reconcile({ id: "party:" + id }) });
+  await party.pruneDeleted();
   function bind(socket, result) {
     socket.data.playerId = result.seatId;
     socket.data.generation = result.generation;
@@ -443,6 +449,7 @@ async function startServer({
         socket.emit("seat_expired", {
           message: "Your saved seat expired or its private token was replaced.",
         });
+      await party.restore(socket);
       socket.emit("server_ready", { ready: true });
     })().catch((e) => {
       socket.data.initializationFailed = true;
@@ -701,6 +708,7 @@ async function startServer({
           "voice_leave",
           "voice_mute",
           "voice_signal",
+          ...PARTY_EVENTS,
         ].includes(event)
       )
         return;
@@ -719,6 +727,7 @@ async function startServer({
       if (typeof ack === "function") ack(response);
     });
     voice.attach(socket);
+    party.attach(socket);
     socket.on("disconnect", (reason) => {
       const disconnectCode = {
         "ping timeout": "ping_timeout", "transport close": "transport_close",
@@ -851,6 +860,7 @@ async function startServer({
     while (activeRequests)
       await new Promise((resolve) => setTimeout(resolve, 20));
     await service.drain();
+    await party.close();
     delivery.views.clear();
     storageNotices.clear();
     limiter.entries.clear();

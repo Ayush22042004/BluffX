@@ -52,6 +52,11 @@ export function PrivacyInfo() {
         abuse. Provider security logs and your browser cache may follow separate
         retention periods.
       </p>
+      <p>
+        Party membership is saved until you leave or delete your account. Party
+        invitations expire after 10 minutes. Party audio continues between games
+        until you leave voice, switch channels, or disconnect; it is not recorded.
+      </p>
     </>
   );
 }

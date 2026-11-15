@@ -3,6 +3,7 @@ import { manageDialogFocus } from "./lib/dialog-focus";
 import { socket, sendGameAction, setSocketEnabled } from "./lib/socket";
 import { TutorialGame, Community } from "./LazyScreens";
 import VoiceChat from "./VoiceChat";
+import PartyPanel from "./PartyPanel";
 import SpeakingBadge from "./SpeakingBadge";
 import { BetaVersion } from "./DisplayHints";
 import { formatPlayerCode } from "./lib/player-code";
@@ -975,6 +976,7 @@ export default function App() {
       </header>
       <aside className="utility-rail" aria-label="Social and account tools">
         <small className="utility-label">YOUR CLUB</small>
+        <PartyPanel account={account} onSignIn={openLogin} />
         <button
           className={`utility-friends ${modal === "community" ? "active" : ""}`}
           aria-label="Friends & Records"
@@ -2302,6 +2304,14 @@ export default function App() {
                   stops the microphone. Voice activity does not clear AFK
                   warnings. Audio connects directly between players and is not
                   recorded by BluffX.
+                </p>
+                <p>
+                  Use Party in the sidebar to stay with friends between games.
+                  Sign in, create a party and invite people from your friend list.
+                  Party voice continues after results and leaving a table; closing
+                  its panel does not mute you. Check the Party button for your mic
+                  status. You can use table voice or party voice at one time.
+                  Refreshing stops your microphone; rejoin voice when you return.
                 </p>
                 <p>
                   Each seat has a cumulative 10-second reconnect budget per

@@ -1,0 +1,25 @@
+.party-dock { display: none; position: fixed; inset: 0; z-index: 180; padding: 16px; background: #0009; }
+.party-dock.is-open { display: flex; justify-content: flex-end; }
+.party-sheet { --palette-border: color-mix(in srgb, var(--palette-primary) 30%, transparent); width: min(430px, 100%); height: 100%; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--palette-primary); border-radius: 18px; padding: 22px; background: var(--palette-base); color: var(--palette-text); box-shadow: 0 20px 70px #0009; }
+.party-heading, .party-member-heading, .party-friend, .party-members li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.party-heading small { color: var(--palette-highlight); font-size: 10px; letter-spacing: .16em; }
+.party-heading h2 { margin: 5px 0; font-size: 28px; }
+.party-description { color: var(--palette-muted); font-size: 13px; line-height: 1.65; margin: 16px 0 22px; }
+.party-sheet h3 { margin: 20px 0 12px; font-size: 16px; }
+.party-sheet small { display: block; color: var(--palette-muted); line-height: 1.6; font-size: 11px; }
+.party-sheet button { min-height: 38px; }
+.party-member-heading > span { color: var(--palette-muted); font-size: 11px; }
+.party-members { padding: 0; margin: 10px 0 18px; list-style: none; }
+.party-members li { border-bottom: 1px solid var(--palette-border); padding: 12px 0; }
+.party-members li > span:not(.avatar), .party-friend > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.party-members .avatar { flex: 0 0 40px; width: 40px; height: 40px; }
+.party-members strong, .party-friend strong { font-size: 13px; }
+.party-sheet .voice-panel { margin: 12px 0 22px; }
+.party-friend { padding: 10px 0; border-bottom: 1px solid var(--palette-border); }
+.party-friend button { flex-shrink: 0; font-size: 12px; }
+.party-leave { width: 100%; margin: 20px 0 10px; }
+.party-invitation { padding: 14px; margin-top: 10px; border: 1px solid var(--palette-secondary); border-radius: 12px; }
+.party-invitation > div { display: flex; gap: 8px; margin-top: 10px; }
+.party-notice { color: var(--palette-highlight); font-size: 13px; line-height: 1.6; }
+.utility-rail .party-voice-status { color: #82e6ad; font-size: 9px; font-weight: 700; }
+@media(max-width: 600px) { .party-dock { padding: 8px; } .party-sheet { width: 100%; padding: 16px; border-radius: 12px; } }

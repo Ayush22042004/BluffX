@@ -5,6 +5,7 @@ Each update gets its own document in this directory. Record implemented behavior
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
 | `v0.3.0` records/mobile hotfix | `0.3.0` | Personal totals include saved casual wins; tolerant heartbeat and page recovery; migration 008 required before rollout | [Hotfix implementation record](v0.3.0-records-mobile.md) |
+| `v0.3.0` persistent parties | `0.3.0` | Friend party invites and voice across games; local implementation, migration 007 required before rollout | [Party implementation record](v0.3.0-parties.md) |
 | `v0.3.0` deployment recovery | `0.3.0` | Separate local/production ownership and bootstrap empty CI databases | [Deployment recovery record](v0.3.0-deployment-recovery.md) |
 | `v0.3.0` final release audit | `0.3.0` | Public frontend/backend verified at `4139f1f` on 2026-11-15; physical-device qualification remains | [Final audit and deployment handoff](v0.3.0-final-audit.md) |
 | `v0.3.0` reporter contact details | `0.3.0` | Trusted player name, Player Code and contact email in private support notifications; local only | [Report contact record](v0.3.0-report-contact.md) |

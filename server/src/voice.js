@@ -4,7 +4,13 @@ const { turnConfig } = require("./turn");
 // Ephemeral signaling only. Never persist SDP, ICE addresses, or microphone audio.
 function createVoice({ io, service, actorFor, limiter, env = process.env }) {
   const members = new Map();
-  function authorized(socket) {
+  function authorized(socket, scope = members.get(socket?.id)?.scope || "table") {
+    if (scope === "party") {
+      const party = socket?.data.party;
+      if (!party || !socket.connected || !socket.data.accountId)
+        throw Error("Join a party first.");
+      return { room: { id: "party:" + party.id }, seat: { id: party.handle } };
+    }
     const room = service.rooms.get(socket.data.roomId);
     if (!room || room.closed || !socket.connected)
       throw Error("Join a table first.");
@@ -59,17 +65,19 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
             throw Error("Invalid voice request.");
           await socket.data.initializing;
           if (event === "voice_leave") {
-            leave(socket);
+            if (!data.voiceId || data.voiceId === members.get(socket.id)?.voiceId) leave(socket);
             reply({ ok: true });
             return;
           }
-          const { room, seat } = authorized(socket);
+          const scope = event === "voice_join" ? (data.scope === "party" ? "party" : "table") : members.get(socket.id)?.scope || "table";
+          const { room, seat } = authorized(socket, scope);
           if (event === "voice_join") {
             limiter.consume("voiceJoin:" + socket.id, 4, 0.2);
             const old = members.get(socket.id);
             const relayConfig =
               old?.relayConfig || (await turnConfig(seat.id, env));
-            authorized(socket);
+            const current = authorized(socket, scope);
+            if (current.room.id !== room.id) throw Error("Voice membership changed.");
             if (old && old.roomId !== room.id) leave(socket);
             // Only the current authorized connection may publish this seat.
             for (const m of members.values())
@@ -84,8 +92,9 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
               roomId: room.id,
               socketId: socket.id,
               seatId: seat.id,
-              muted: old?.muted ?? true,
-              voiceId: old?.voiceId || crypto.randomUUID(),
+              muted: old?.roomId === room.id ? old.muted : true,
+              voiceId: old?.roomId === room.id ? old.voiceId : crypto.randomUUID(),
+              scope,
               relayConfig,
             });
             reply({
@@ -99,6 +108,7 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
           }
           const own = members.get(socket.id);
           if (!own || own.roomId !== room.id) throw Error("Join voice first.");
+          if (data.voiceId && data.voiceId !== own.voiceId) throw Error("Voice session changed.");
           if (event === "voice_mute") {
             if (typeof data.muted !== "boolean")
               throw Error("Invalid mute state.");
@@ -162,7 +172,7 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
             message:
               e.code === "RATE_LIMITED"
                 ? "Too many voice requests. Try again shortly."
-                : "Voice unavailable. Rejoin voice at your current table.",
+                : "Voice unavailable. Rejoin your current voice channel.",
           });
         }
       });
@@ -178,9 +188,9 @@ function createVoice({ io, service, actorFor, limiter, env = process.env }) {
       if (member.roomId !== room.id) continue;
       const socket = io.sockets.sockets.get(member.socketId);
       try {
-        if (room.closed || !socket || socket.data.roomId !== room.id)
+        if (room.closed || !socket || (member.scope !== "party" && socket.data.roomId !== room.id))
           throw Error();
-        authorized(socket);
+        if (authorized(socket).room.id !== member.roomId) throw Error();
       } catch {
         leave(socket || { id: member.socketId, emit() {} });
       }
