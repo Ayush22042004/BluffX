@@ -12,6 +12,8 @@ Use `https://bluffx.vercel.app` for Render's `APP_ORIGIN` and `CLIENT_ORIGIN`, a
 
 ## Render backend
 
+Keep **Auto-Deploy Off** for the single-owner backend. A local backend must use its own Neon development branch; connecting it to production prevents Render from obtaining the advisory ownership lock. For a runtime upgrade, finish or pause admission to matches and perform the documented maintenance stop/start handoff. Test/documentation-only commits do not require a backend restart. See [deployment recovery](versions/v0.3.0-deployment-recovery.md).
+
 Create a web service from this repository, or use its root `render.yaml` Blueprint. Settings:
 
 - Root directory: `server`

@@ -32,7 +32,7 @@ Realtime multiplayer Bluff variant with selective challenge mechanics.
 
 See the [version history](docs/versions/README.md) and [complete beta version 2 implementation record](docs/versions/beta-v2.md) for implemented features, migrations, verification results, performance measurements and deployment status. Use the [version template](docs/versions/TEMPLATE.md) for each future update.
 
-The current development release is **0.3.0**: ten-human tables, one/two decks, presets, ready-confirmed rematches, friends/invitations, match insights, achievements and history. See the [v0.3.0 implementation record](docs/versions/v0.3.0.md) for verification, optional features excluded, voice cost constraints and pending production migrations. This development release has not been deployed.
+The current public beta release is **0.3.0**: ten-human tables, one/two decks, presets, ready-confirmed rematches, friends/invitations, match insights, achievements and history. The frontend and backend were verified on 2026-11-15 at commit `4139f1f`. See the [release audit](docs/versions/v0.3.0-final-audit.md) and [deployment recovery record](docs/versions/v0.3.0-deployment-recovery.md) for actual checks and remaining physical-device qualification.
 
 ## What is unique here
 
