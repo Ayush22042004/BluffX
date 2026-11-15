@@ -1,5 +1,7 @@
 # BluffX
 
+Prepared feature: [persistent parties and party voice](docs/versions/v0.3.0-parties.md), requiring migration 007 before rollout.
+
 Final release checks and deployment handoff: [2026-11-15 audit](docs/versions/v0.3.0-final-audit.md).
 
 Existing Gmail sender setup: [Gmail API over HTTPS](docs/gmail.md).

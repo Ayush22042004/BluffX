@@ -1,7 +1,9 @@
 // Test processes only: exercise the PostgreSQL driver API without a cloud account.
 // Production never loads this fixture or falls back to temporary storage.
 const { newDb } = require("pg-mem");
-require("pg").Pool = newDb().adapters.createPg().Pool;
+const fixture = newDb();
+fixture.public.registerFunction({ name: "pg_advisory_xact_lock", args: ["integer"], returns: "integer", implementation: () => 1 });
+require("pg").Pool = fixture.adapters.createPg().Pool;
 process.env.DATABASE_URL = "postgresql://test-only";
 process.env.MAIL_PROVIDER = "local";
 process.env.NODE_ENV = "development";
