@@ -140,6 +140,13 @@ test(
       controller.abort();
       socket.disconnect();
       await run;
+      if (latest?.roomId) {
+        const { Pool } = require("pg");
+        const { verifiedConnectionString } = require("../src/database");
+        const cleanup = new Pool({ connectionString: verifiedConnectionString(URL), max: 1 });
+        try { await cleanup.query("DELETE FROM bx_rooms WHERE room_code=$1", [latest.roomId]); }
+        finally { await cleanup.end(); }
+      }
     }
   },
 );

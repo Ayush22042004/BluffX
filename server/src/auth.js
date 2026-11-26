@@ -7,6 +7,8 @@ const { OAuth2Client } = require("google-auth-library");
 const { createMailer } = require("./mailer");
 const { installAvatars, validAvatarId } = require("./avatars");
 const { createRateIdentity } = require("./rate-identity");
+const { DemandMaintenance } = require("./storage-idle");
+const { RULES } = require("./rules");
 const scrypt = promisify(crypto.scrypt);
 let passwordJobs = 0;
 const passwordQueue = [];
@@ -63,6 +65,7 @@ async function createAuth({
   notifySocial,
   onRevoke = () => {},
   onErase = async () => {},
+  onMaintenance = async () => {},
   databaseUrl = process.env.DATABASE_URL,
   pool,
   outboxPath = process.env.MAIL_OUTBOX_PATH ||
@@ -108,14 +111,12 @@ async function createAuth({
       ?.slice(COOKIE.length + 1);
     if (!raw || !/^[a-f0-9]{64}$/.test(raw)) return null;
     const hash = digest(raw);
-    const session = await db.get(
-      "SELECT * FROM sessions WHERE hash=? AND expires_at>?",
+    const user = await db.get(
+      "SELECT u.*,a.id AS avatar_id FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN player_avatars a ON a.user_id=u.id WHERE s.hash=? AND s.expires_at>? AND u.deleted_at IS NULL",
       hash,
       Date.now(),
     );
-    if (!session) return null;
-    const user = await userById(session.user_id);
-    return user && !user.deleted_at ? { user, hash } : null;
+    return user ? { user, hash } : null;
   }
   const cookieOptions = {
     httpOnly: true,
@@ -576,9 +577,7 @@ async function createAuth({
         : "Something went wrong. Please try again.",
     });
   });
-  let lastAvatarCleanup = 0;
-  const cleanup = setInterval(async () => {
-    try {
+  const cleanup = new DemandMaintenance(() => db.activity(async () => {
       const now = Date.now();
       await db.run("DELETE FROM sessions WHERE expires_at<?", now);
       await db.run("DELETE FROM tokens WHERE expires_at<?", now);
@@ -589,19 +588,17 @@ async function createAuth({
         "DELETE FROM bx_reports WHERE created_at<?",
         now - 30 * 86400000,
       );
-      if (now - lastAvatarCleanup > 3600000) {
-        await db.run(
-          "DELETE FROM player_avatars WHERE user_id IS NULL AND created_at<?",
-          now - 30 * 86400000,
-        );
-        lastAvatarCleanup = now;
-      }
+      await db.run(
+        "DELETE FROM player_avatars WHERE user_id IS NULL AND created_at<?",
+        now - 30 * 86400000,
+      );
       for (const [key, v] of rate) if (v.until < now) rate.delete(key);
-    } catch (error) {
-      console.error("Auth cleanup failed:", error.code || error.name);
-    }
-  }, 60000);
-  cleanup.unref();
+      await onMaintenance();
+  }), {
+    intervalMs: RULES.maintenanceMs,
+    onError: error => console.error("Auth cleanup failed:", error.code || error.name),
+  });
+  db.onUse = () => cleanup.notify();
   await processErasures();
   return {
     router,
@@ -612,7 +609,7 @@ async function createAuth({
     mailer: emailService,
     rateIdentity: (header) => browserIdentity.read(header),
     async close() {
-      clearInterval(cleanup);
+      await cleanup.close();
       avatars.close();
       await db.close();
     },

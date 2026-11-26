@@ -19,6 +19,9 @@ if (process.env.DEPLOYMENT_CHECK_MODE !== "isolated") {
     };
     const health = await (await get(backend + "/health")).json();
     if (!health.ok) throw Error("Backend not ready");
+    // /health is process liveness. /ready is cached readiness and never probes SQL.
+    const readiness = await (await get(backend + "/ready")).json();
+    if (!readiness.ready) throw Error("Backend storage recovery is not ready");
     console.log(
       "PASS read-only backend health; deployed version:",
       health.version || "unreported",

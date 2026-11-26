@@ -40,8 +40,9 @@ ${require("node:fs").readFileSync(require("node:path").join(__dirname, "../migra
 `;
 
 // SQL here is application-owned; values always travel separately as parameters.
-function queries(client) {
+function queries(client, onQuery = () => {}) {
   const query = (sql, values) => {
+    onQuery();
     let index = 0;
     return client.query(
       sql.replace(/\?/g, () => `$${++index}`),
@@ -72,6 +73,9 @@ async function createDatabase({
   pool ||= new Pool({
     connectionString: verifiedConnectionString(connectionString),
     max: RULES.authPoolSize,
+    min: 0,
+    idleTimeoutMillis: RULES.poolIdleMs,
+    allowExitOnIdle: true,
     connectionTimeoutMillis: RULES.storageTimeoutMs,
     query_timeout: RULES.storageTimeoutMs + 5000,
   });
@@ -98,25 +102,42 @@ async function createDatabase({
   } finally {
     if (schemaPool !== pool) await schemaPool.end();
   }
-  return {
-    ...queries(pool),
+  let activity = work => work();
+  let queryCount = 0;
+  const countQuery = () => { queryCount++; };
+  const plain = queries(pool, countQuery);
+  const used = async (work) => {
+    const result = await activity(work);
+    database.onUse?.();
+    return result;
+  };
+  const database = {
+    get: (...args) => used(() => plain.get(...args)),
+    run: (...args) => used(() => plain.run(...args)),
+    activity: work => activity(work),
+    setActivity: fn => { activity = fn; },
+    get queryCount() { return queryCount; },
+    poolState: () => ({ total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }),
     async transaction(work) {
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        const result = await work(queries(client));
-        await client.query("COMMIT");
-        return result;
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
-      }
+      return used(async () => {
+        const client = await pool.connect();
+        try {
+          countQuery(); await client.query("BEGIN");
+          const result = await work(queries(client, countQuery));
+          countQuery(); await client.query("COMMIT");
+          return result;
+        } catch (error) {
+          countQuery(); await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        } finally {
+          client.release();
+        }
+      });
     },
     async close() {
       if (owned) await pool.end();
     },
   };
+  return database;
 }
 module.exports = { createDatabase, verifiedConnectionString };

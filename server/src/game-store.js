@@ -71,10 +71,11 @@ class GameStore {
     this.owner = owner;
     this.epoch = epoch;
     this.available = true;
+    this.parked = false;
     this.knownMatches = new Set();
   }
   async transaction(work) {
-    if (!this.available)
+    if (!this.available || this.parked)
       throw error(
         "STORAGE_UNAVAILABLE",
         "Game storage is unavailable; no move was committed.",
@@ -453,6 +454,61 @@ class GameStore {
     await this.owner?.end();
     await this.pool.end();
   }
+  async park() {
+    if (this.parked || !this.available) return;
+    this.parked = true;
+    const owner = this.owner;
+    this.owner = null;
+    await owner?.end(); // Closing releases the advisory lock without a SQL probe.
+  }
+  async wake() {
+    if (!this.parked) return true;
+    let owner;
+    const previousEpoch = this.epoch;
+    try {
+      owner = await acquireOwner(this.ownerOptions);
+      this.owner = owner.client;
+      this.epoch = owner.epoch;
+      this.parked = false;
+      watchOwner(this, owner.client);
+      // No intervening owner: memory is still authoritative. A cold database
+      // read must not rewrite every lobby just because its connection slept.
+      return this.epoch === previousEpoch + 1;
+    } catch (e) {
+      await owner?.client.end().catch(() => {});
+      throw e;
+    }
+  }
+}
+function watchOwner(store, owner) {
+  const lost = (code) => {
+    if (store.owner !== owner || !store.available) return;
+    store.unavailableReason = code;
+    store.available = false;
+    store.onUnavailable?.();
+  };
+  owner.on("error", e => lost(e.code || "OWNER_ERROR"));
+  owner.on("end", () => lost("OWNER_CONNECTION_ENDED"));
+}
+async function acquireOwner(options) {
+  for (let attempt = 1; ; attempt++) {
+    const client = new Client(options);
+    client.on("error", () => {}); // The owning store installs its failure handler after acquisition.
+    try {
+      await client.connect();
+      if (!(await client.query("SELECT pg_try_advisory_lock(71638205) AS owned")).rows[0].owned)
+        throw error("SERVER_ALREADY_RUNNING", "Only one BluffX game server may own this database.");
+      const epoch = Number((await client.query("UPDATE bx_service_owner SET epoch=epoch+1 WHERE id=1 RETURNING epoch")).rows[0].epoch);
+      return { client, epoch };
+    } catch (e) {
+      await client.end().catch(() => {});
+      if (!transientConnection(e) || attempt >= RULES.storageConnectAttempts) throw e;
+      await new Promise(resolve => setTimeout(resolve, attempt * 500));
+    }
+  }
+}
+function transientConnection(e) {
+  return ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EPIPE", "57P01", "57P02", "57P03"].includes(e.code) || /^08/.test(e.code || "") || /connection (?:terminated|timeout)/i.test(e.message || "");
 }
 async function openGameStore({
   connectionString = process.env.DATABASE_URL,
@@ -472,15 +528,19 @@ async function openGameStore({
   const pool = new Pool({
     connectionString: verifiedConnectionString(connectionString),
     max: RULES.gamePoolSize,
+    min: 0,
+    idleTimeoutMillis: RULES.poolIdleMs,
+    allowExitOnIdle: true,
     connectionTimeoutMillis: RULES.storageTimeoutMs,
     query_timeout: RULES.storageTimeoutMs + 5000,
   });
-  const owner = new Client({
+  const ownerOptions = {
     connectionString: verifiedConnectionString(directUrl || connectionString),
     connectionTimeoutMillis: RULES.storageTimeoutMs,
     query_timeout: RULES.storageTimeoutMs + 5000,
     keepAlive: true,
-  });
+  };
+  const owner = new Client(ownerOptions);
   let store;
   try {
     if (autoMigrate) {
@@ -537,16 +597,8 @@ async function openGameStore({
       ).rows[0].epoch,
     );
     store = new GameStore(pool, owner, epoch);
-    owner.on("error", (e) => {
-      store.unavailableReason = e.code || "OWNER_ERROR";
-      store.available = false;
-      store.onUnavailable?.();
-    });
-    owner.on("end", () => {
-      store.unavailableReason ||= "OWNER_CONNECTION_ENDED";
-      store.available = false;
-      store.onUnavailable?.();
-    });
+    store.ownerOptions = ownerOptions;
+    watchOwner(store, owner);
     pool.on("error", () => {});
     return store;
   } catch (e) {

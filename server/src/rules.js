@@ -65,6 +65,9 @@ function loadRules(env = process.env) {
     ),
     gamePoolSize: integer(env, "GAME_POOL_SIZE", 4, 1, 8),
     authPoolSize: integer(env, "AUTH_POOL_SIZE", 2, 1, 5),
+    databaseIdleMs: integer(env, "GAME_DB_IDLE_MS", 30000, 1000, 120000),
+    poolIdleMs: integer(env, "DB_POOL_IDLE_MS", 10000, 1000, 30000),
+    maintenanceMs: integer(env, "DB_MAINTENANCE_MS", 3600000, 60000, 86400000),
     historyLimit: 128,
     finishedMemoryMs: integer(
       env,

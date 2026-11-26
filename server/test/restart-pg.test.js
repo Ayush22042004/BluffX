@@ -25,7 +25,7 @@ test(
   "abrupt real server termination and fresh Socket.IO clients recover the committed match",
   { skip: !URL, timeout: 240000 },
   async () => {
-    let child;
+    let child, code;
     const sockets = [];
     const db = new Pool({
       connectionString: verifiedConnectionString(URL),
@@ -93,9 +93,9 @@ test(
         maxPlayers: 2,
         turnSeconds: 60,
       });
-      const lobby = await wait,
-        code = lobby.roomId,
-        tokenA = (await aToken).token;
+      const lobby = await wait;
+      code = lobby.roomId;
+      const tokenA = (await aToken).token;
       wait = event(b, "room_state");
       const bToken = event(b, "seat_session");
       b.emit("join_room", { roomId: code, name: "Restart B" });
@@ -201,6 +201,7 @@ test(
         child.kill("SIGKILL");
         await new Promise((resolve) => child.once("exit", resolve));
       }
+      if (code) await db.query("DELETE FROM bx_rooms WHERE room_code=$1", [code]);
       await db.end();
     }
   },

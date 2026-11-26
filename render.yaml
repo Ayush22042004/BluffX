@@ -6,6 +6,7 @@ services:
     plan: free
     buildCommand: npm ci --omit=dev
     startCommand: npm start
+    # Liveness only: never connects to PostgreSQL. /ready is also memory-only.
     healthCheckPath: /health
     # A database advisory lock fences out additional instances. Use a maintenance
     # handoff when deploying; the old owner must stop before the new one starts.

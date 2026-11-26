@@ -11,6 +11,7 @@ const { RoomService } = require("./room-service");
 const { RoomDelivery } = require("./room-delivery");
 const { DeadlineScheduler } = require("./deadline-scheduler");
 const { Diagnostics } = require("./diagnostics");
+const { StorageIdle } = require("./storage-idle");
 const {
   RateLimiter,
   validatePayload,
@@ -141,7 +142,8 @@ async function startServer({
   );
   const delivery = new RoomDelivery();
   const storageNotices = new Map();
-  let scheduler, voice, party;
+  let scheduler, voice, party, idle;
+  let restoringIdle = false;
   let requestRecovery;
   const recovery = new Promise((resolve) => {
     requestRecovery = resolve;
@@ -152,6 +154,7 @@ async function startServer({
   const store = providedStore || (await createGameStore());
   const service = new RoomService(store, {
     onCommit: (room, effects) => {
+      if (restoringIdle) return;
       voice?.reconcile(room);
       if (effects.finalized) {
         const ids = new Set(
@@ -200,6 +203,7 @@ async function startServer({
         delivery.views.delete(room.id);
       }
       if (effects.event) io.to(room.id).emit("bluff_result", effects.event);
+      idle?.touch();
     },
   });
   service.metrics = metrics;
@@ -240,6 +244,10 @@ async function startServer({
         await party?.removeAccount(id);
         await service.eraseAccount(id);
       },
+      onMaintenance: async () => {
+        await store.prune?.();
+        await party?.pruneDeleted();
+      },
       onRevoke: (id, sessionHash) => {
         for (const socket of io.sockets.sockets.values())
           if (
@@ -248,16 +256,18 @@ async function startServer({
           ) {
             // Session revocation uses a durable disconnect/forfeit, not a client result.
             socket.emit("account_revoked");
-            const actor = actorFor(socket);
             const room = service.rooms.get(socket.data.roomId);
             if (room) {
               const { envelope } = require("./protocol");
-              service
-                .command(room.id, actor, "leave_room", {
-                  ...envelope(room),
-                  actionId: crypto.randomUUID(),
+              const leave = async () => {
+                const current = service.rooms.get(room.id);
+                const seat = current?.players.find(p => p.id === socket.data.playerId && p.accountId === id);
+                if (!seat) return;
+                return service.command(current.id, { ...actorFor(socket), generation: seat.controlGeneration }, "leave_room", {
+                  ...envelope(current), actionId: crypto.randomUUID(),
                 })
-                .catch(() => {});
+              };
+              (idle ? idle.run(leave) : leave()).catch(() => {});
             }
             socket.disconnect(true);
           }
@@ -297,14 +307,16 @@ async function startServer({
   require("./history").installHistory({ app, auth, store });
   app.get("/health", (_req, res) =>
     res
-      .status(ready && store.available ? 200 : 503)
-      .json({ ok: ready && store.available, version: RELEASE, build: BUILD }),
+      .status(stopping ? 503 : 200)
+      .set("Cache-Control", "no-store")
+      .json({ ok: !stopping, ready: ready && store.available && !idle?.lastWakeError, storage: store.parked ? "idle" : store.available ? "available" : "recovering", version: RELEASE, build: BUILD }),
   );
+  app.get("/ready", (_req, res) => res.status(ready && store.available && !idle?.lastWakeError && !stopping ? 200 : 503).set("Cache-Control", "no-store").json({ ready: ready && store.available && !idle?.lastWakeError && !stopping, version: RELEASE, build: BUILD }));
   const endpoint = (fn) => async (req, res) => {
     try {
       limiter.consume("http:" + req.ip, RULES.httpBurst, RULES.httpRefill);
       res.set("Cache-Control", "no-store");
-      res.json(await fn(req));
+      res.json(await idle.run(() => fn(req)));
     } catch (e) {
       res.status(e.code === "RATE_LIMITED" ? 429 : e.status || 503).json({
         message: e.status ? e.message : "Statistics temporarily unavailable.",
@@ -439,7 +451,7 @@ async function startServer({
           Buffer.byteLength(JSON.stringify([event, ...data])),
         );
       });
-    socket.data.initializing = (async () => {
+    const initialize = async () => {
       const token = socket.handshake.auth?.resumeToken,
         pending = socket.handshake.auth?.pendingResumeToken;
       const result = await service.resume(actorFor(socket), [token, pending]);
@@ -451,7 +463,8 @@ async function startServer({
         });
       await party.restore(socket);
       socket.emit("server_ready", { ready: true });
-    })().catch((e) => {
+    };
+    socket.data.initializing = ((socket.handshake.auth?.resumeToken || socket.handshake.auth?.pendingResumeToken || socket.data.accountId) ? idle.run(initialize) : initialize()).catch((e) => {
       socket.data.initializationFailed = true;
       socket.emit("action_error", safeError(e));
       socket.disconnect(true);
@@ -469,6 +482,7 @@ async function startServer({
         }
         activeRequests++;
         const actionStarted = metrics.start();
+        let releaseStorage;
         try {
           validatePayload(data, event);
           const originalFingerprint = fingerprint(event, data);
@@ -535,6 +549,7 @@ async function startServer({
               ? RULES.setupRefillPerSec
               : RULES.eventTypeRefill,
           );
+          releaseStorage = await idle.enter();
           if (socket.data.accountId) {
             const session = await auth.sessionFromCookie(
               socket.handshake.headers.cookie,
@@ -601,6 +616,8 @@ async function startServer({
           metrics.end("actionMs", actionStarted);
           metrics.add("actions");
           activeRequests--;
+          releaseStorage?.();
+          idle.touch();
         }
       });
     const setupReceipts = new Map();
@@ -736,8 +753,7 @@ async function startServer({
       }[reason] || "other";
       metrics.add("disconnect_" + disconnectCode);
       if (!stopping && !socket.data.replaced && socket.data.roomId)
-        service
-          .disconnect(socket.data.roomId, actorFor(socket))
+        idle.run(() => service.disconnect(socket.data.roomId, actorFor(socket)))
           .catch(() => {});
       limiter.entries.delete("socket:" + socket.id);
       limiter.entries.delete("chat:" + socket.id);
@@ -756,7 +772,7 @@ async function startServer({
     });
   });
   ready = true;
-  scheduler = new DeadlineScheduler((code) => service.wake(code), {
+  scheduler = new DeadlineScheduler((code) => idle.run(() => service.wake(code)), {
     now: () => service.now(),
     concurrency: RULES.gamePoolSize,
     onError: () => metrics.add("schedulerFailures"),
@@ -771,9 +787,58 @@ async function startServer({
       io.to(code).emit("storage_status", { available });
     if (service.rooms.has(code)) storageNotices.set(code, available);
     else storageNotices.delete(code);
+    idle?.touch();
   };
   for (const room of service.rooms.values())
     scheduler.set(room.id, room.nextWakeAt);
+  idle = new StorageIdle({
+    store,
+    idleMs: RULES.databaseIdleMs,
+    canSleep: () => !stopping && typeof store.park === "function" && !activeRequests && !service.queues.size && !service.pendingDisconnects.size && !service.reloadNeeded.size && [...service.rooms.values()].every(r => ["lobby", "finished"].includes(r.phase)),
+    wake: async () => {
+      if (await store.wake()) {
+        metrics.add("storageWakes");
+        return;
+      }
+      restoringIdle = true;
+      try {
+        service.rooms.clear();
+        service.receipts.clear();
+        await service.initialize();
+        // Revalidate durable resume credentials and preserve online seats across
+        // an ownership epoch change without restarting any absolute deadline.
+        for (const socket of io.sockets.sockets.values()) {
+          if (!socket.connected || !socket.data.roomId) continue;
+          const result = await service.resume(actorFor(socket), [socket.data.proposal]);
+          if (result) {
+            socket.data.playerId = result.seatId;
+            socket.data.generation = result.generation;
+            socket.data.roomId = result.roomId;
+          } else {
+            socket.leave(socket.data.roomId);
+            socket.data.roomId = null;
+            socket.emit("room_removed", { message: "Your saved table expired while idle." });
+          }
+        }
+      } catch (e) {
+        store.available = false;
+        store.onUnavailable?.();
+        throw e;
+      } finally { restoringIdle = false; }
+      for (const room of service.rooms.values()) {
+        voice.reconcile(room);
+        const prepared = delivery.prepare(room);
+        for (const socketId of io.sockets.adapter.rooms.get(room.id) || []) {
+          const socket = io.sockets.sockets.get(socketId);
+          if (socket) delivery.send(socket, room, prepared);
+        }
+      }
+      metrics.add("storageWakes");
+    },
+    onError: () => metrics.add("storageIdleFailures"),
+  });
+  auth.database.setActivity(work => idle.run(work));
+  idle.touch();
   store.onUnavailable = () => {
     ready = false;
     io.emit("action_error", {
@@ -799,16 +864,14 @@ async function startServer({
           activeRooms: service.rooms.size,
           connectedSockets: io.sockets.sockets.size,
           scheduledRooms: scheduler.heap.length,
-          timerHandles: (scheduler.timer ? 1 : 0) + 1,
+          timerHandles: (scheduler.timer ? 1 : 0) + (idle.timer ? 1 : 0),
+          storageIdle: !!store.parked,
+          authSqlCalls: auth.database.queryCount,
+          authDatabasePool: auth.database.poolState(),
           schedulerWakeups: scheduler.wakeups,
         }),
       );
     });
-  const retention = setInterval(
-    () => store.prune().catch(() => metrics.add("retentionFailures")),
-    3600000,
-  );
-  retention.unref();
   const sampledMetrics = production
     ? setInterval(
         () =>
@@ -819,6 +882,9 @@ async function startServer({
               ...metrics.report({
                 activeRooms: service.rooms.size,
                 connectedSockets: io.sockets.sockets.size,
+                storageIdle: !!store.parked,
+                authSqlCalls: auth.database.queryCount,
+                authDatabasePool: auth.database.poolState(),
                 databasePool: store.pool
                   ? {
                       total: store.pool.totalCount,
@@ -855,7 +921,6 @@ async function startServer({
     scheduler.close();
     voice.close();
     metrics.close();
-    clearInterval(retention);
     clearInterval(sampledMetrics);
     while (activeRequests)
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -868,6 +933,7 @@ async function startServer({
     await new Promise((resolve) => server.close(resolve));
     await reportEmail.close();
     await auth.close();
+    await idle.close();
     await store.close();
   }
   return {
@@ -879,6 +945,8 @@ async function startServer({
     close,
     metrics,
     scheduler,
+    idle,
+    auth,
     recovery,
   };
 }
