@@ -6,6 +6,7 @@ function startMaintenance(port = Number(process.env.PORT || 10000)) {
     res.writeHead(health ? 200 : 503, {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
       "Retry-After": "30",
       "X-Content-Type-Options": "nosniff",
     });

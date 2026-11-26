@@ -40,6 +40,7 @@ export default defineConfig({
   preview: {
     proxy: testProxy
       ? {
+          "/health": { target: testProxy },
           "/auth": { target: testProxy },
           "/socket.io": {
             target: testProxy,

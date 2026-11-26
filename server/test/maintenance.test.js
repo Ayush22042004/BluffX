@@ -11,6 +11,7 @@ test("maintenance handoff answers platform health but refuses auth and game traf
       const response = await fetch(base + path);
       assert.equal(response.status, path === "/health" ? 200 : 503);
       assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("access-control-allow-origin"), "*");
       assert.equal(response.headers.get("retry-after"), "30");
       const state = await response.json();
       assert.equal(state.ok, false);

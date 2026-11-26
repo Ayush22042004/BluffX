@@ -4,6 +4,7 @@ Each update gets its own document in this directory. Record implemented behavior
 
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
+| `v0.3.0` maintenance UI | `0.3.0` | Explicit visitor screen, automatic recovery and database-free checks; production deployment pending | [Maintenance UI record](v0.3.0-maintenance-ui.md) |
 | `v0.3.0` Neon idle efficiency | `0.3.0` | Implemented locally; real Neon suspension verified; manual Render rollout required | [Idle database audit and verification](v0.3.0-neon-idle.md) |
 | `v0.3.0` combined update rollout | `0.3.0` | Live on Render/Vercel at `f8932ca`; production migrations 007/008 verified, accounts/results preserved | [Rollout record](v0.3.0-update-rollout.md) |
 | `v0.3.0` records/mobile hotfix | `0.3.0` | Personal totals include saved casual wins; tolerant heartbeat and page recovery; migration 008 required before rollout | [Hotfix implementation record](v0.3.0-records-mobile.md) |

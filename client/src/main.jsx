@@ -2,6 +2,7 @@ import React, { Component, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import DisplayHints from "./DisplayHints";
+import MaintenanceNotice from "./MaintenanceNotice";
 import { AuthProvider } from "./auth";
 import "./index.css";
 import "./theme-ui.css";
@@ -62,10 +63,12 @@ class RootErrorBoundary extends Component {
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <RootErrorBoundary>
-      <DisplayHints />
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <MaintenanceNotice>
+        <DisplayHints />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MaintenanceNotice>
     </RootErrorBoundary>
   </StrictMode>,
 );

@@ -1,5 +1,7 @@
 # BluffX
 
+Maintenance UI: [visitor notice, automatic recovery and verification](docs/versions/v0.3.0-maintenance-ui.md).
+
 Database efficiency update: [Neon idle suspension, cold starts and verification](docs/versions/v0.3.0-neon-idle.md).
 
 Combined release handoff: [parties, personal records and mobile recovery](docs/versions/v0.3.0-update-rollout.md).

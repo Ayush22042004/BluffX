@@ -25,6 +25,8 @@ export async function authRequest(path, body, method = "POST", signal) {
   const data = await response
     .json()
     .catch(() => ({ message: "The server returned an unexpected response." }));
+  if (data.maintenance === true || data.code === "SERVER_MAINTENANCE")
+    window.dispatchEvent(new Event("bluffx:maintenance"));
   if (!response.ok)
     throw Error(data.message || "Unable to complete this request.");
   return data;
