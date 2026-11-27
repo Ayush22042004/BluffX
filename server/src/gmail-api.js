@@ -61,11 +61,14 @@ function createGmailSender({
             signal: AbortSignal.timeout(timeoutMs),
           },
         );
-        if (!response.ok)
-          throw fail(
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          const reason = ["invalid_grant", "invalid_client", "unauthorized_client", "access_denied"].includes(result.error) ? result.error : "authorization_failed";
+          throw Object.assign(fail(
             "Gmail sender authorization failed. Reauthorize the sender account.",
             response.status,
-          );
+          ), { providerReason: reason });
+        }
         const result = await response.json();
         if (
           typeof result.access_token !== "string" ||
@@ -83,7 +86,7 @@ function createGmailSender({
       });
     return refreshing;
   }
-  return async (message) => {
+  const send = async (message) => {
     try {
       const from = String(message.from || "");
       const sender = (from.match(/<([^<>]+)>$/)?.[1] || from)
@@ -145,5 +148,10 @@ function createGmailSender({
       );
     }
   };
+  send.checkAuthorization = async () => {
+    await accessToken();
+    return { authorized: true };
+  };
+  return send;
 }
 module.exports = { gmailConfig, createGmailSender, TOKEN_FILE, SCOPE };

@@ -113,6 +113,7 @@ function createMailer({
       : null;
   return {
     mode,
+    checkAuthorization: gmailSend ? () => gmailSend.checkAuthorization() : undefined,
     idempotencyWindowMs:
       mode === "brevo"
         ? 25 * 60000

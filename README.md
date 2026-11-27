@@ -1,5 +1,7 @@
 # BluffX
 
+Email troubleshooting: [Gmail authorization diagnostics](docs/versions/v0.3.0-gmail-authorization-check.md).
+
 Maintenance UI: [visitor notice, automatic recovery and verification](docs/versions/v0.3.0-maintenance-ui.md).
 
 Database efficiency update: [Neon idle suspension, cold starts and verification](docs/versions/v0.3.0-neon-idle.md).

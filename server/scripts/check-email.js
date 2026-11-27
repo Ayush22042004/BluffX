@@ -34,6 +34,12 @@ const { settings } = require("../src/report-email");
   });
   console.log("App mail mode: " + configured.mode);
   console.log("Checked provider: " + provider + " (" + mailer.mode + ")");
+  if (process.argv.includes("--check-auth")) {
+    if (!mailer.checkAuthorization)
+      throw Error("Authorization-only checks require a configured Gmail provider.");
+    await mailer.checkAuthorization();
+    console.log("PASS Gmail sender authorization is valid. No email was sent.");
+  }
   if (!send) {
     console.log(
       "Configuration check only. No email sent. Use --send-test explicitly for one real HTTPS email test to REPORTS_TO; select --provider gmail, --provider brevo or --provider resend.",
@@ -61,5 +67,8 @@ const { settings } = require("../src/report-email");
   console.error(
     "Check the selected provider API key, sender authorization and account activation. No secret values were printed.",
   );
+  if (e.providerReason) console.error("Gmail OAuth reason: " + e.providerReason);
+  if (e.providerReason === "invalid_grant")
+    console.error("The refresh token expired or was revoked. Check Google Auth Platform publishing status, reauthorize the sender, and replace GMAIL_REFRESH_TOKEN in Render. External Testing-mode Gmail grants expire after seven days.");
   process.exitCode = 1;
 });

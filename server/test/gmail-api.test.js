@@ -15,6 +15,27 @@ const message = {
   subject: "Verify your email",
   text: "Visit https://bluffx.example/?auth=verify&token=private-link",
 };
+
+test("Gmail authorization-only diagnostics never send email or expose provider descriptions and tokens", async () => {
+  let calls = 0;
+  const mailer = createMailer({ env, fetchImpl: async url => {
+    calls++;
+    assert.match(url, /oauth2\.googleapis\.com\/token$/);
+    return { ok: false, status: 400, json: async () => ({ error: "invalid_grant", error_description: "private-refresh-token" }) };
+  } });
+  await assert.rejects(mailer.checkAuthorization(), error => {
+    assert.equal(error.providerReason, "invalid_grant");
+    assert.equal(error.providerStatus, 400);
+    assert.doesNotMatch(JSON.stringify(error) + error.message, /private-refresh-token/);
+    return true;
+  });
+  assert.equal(calls, 1);
+  const valid = createMailer({ env, fetchImpl: async url => {
+    assert.match(url, /oauth2\.googleapis\.com\/token$/);
+    return { ok: true, json: async () => ({ access_token: "secret-access-token", expires_in: 3600 }) };
+  } });
+  assert.deepEqual(await valid.checkAuthorization(), { authorized: true });
+});
 test("Gmail sends RFC email over HTTPS and shares one cached refresh across concurrent sends", async () => {
   const calls = [];
   const mailer = createMailer({

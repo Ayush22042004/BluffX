@@ -66,6 +66,10 @@ Keep existing database, CORS, Google player sign-in, cookie and TURN configurati
 
 ## Reliability and limits
 
+Check authorization without sending any email: `npm run check:email -- --provider gmail --check-auth`. An `invalid_grant` result means the configured refresh token is expired or revoked; it is not an SMTP or Vercel connectivity error. In Google Cloud → Google Auth Platform → Audience, check the sender OAuth project's publishing status. External apps in Testing issue Gmail refresh tokens that expire after seven days. Where eligible, publish the owner-only OAuth app to production before generating a fresh token; publishing alone does not repair an expired token or imply Google verification. Follow any consent-screen verification requirements shown by Google. See [Google refresh-token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
+
+After authorizing again, replace `GMAIL_REFRESH_TOKEN` in Render using the new private token, then restart/deploy the backend. A stale `GMAIL_REFRESH_TOKEN` environment variable overrides the local saved authorization file, so update the local variable too if present. Never paste tokens into chat. The authorization check makes one on-demand HTTPS request; no background monitoring or email polling is added.
+
 - Access tokens are cached in memory and concurrent sends share one refresh request. No token is stored in public state or database/game snapshots.
 - Sending is bounded by request timeouts. Provider errors are sanitized; revoked/expired authorization needs the owner to run authorization again and update Render's refresh token.
 - This is a real mailbox with Google's account-specific sending limits, not an unlimited bulk-email service. Use a dedicated sender mailbox for the game and monitor delivery/account health.
