@@ -1,5 +1,16 @@
 import { test, expect } from "@playwright/test";
 
+test("privacy aliases serve the policy HTML rather than the game fallback", async ({ request }) => {
+  for (const path of ["/privacy", "/privacy/", "/privacy?source=google", "/privacy/index.html"]) {
+    const response = await request.get(path);
+    expect(response.status()).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("<title>Privacy Policy | BluffX</title>");
+    expect(html).toContain("3. Google sign-in and Gmail API");
+    expect(html).not.toContain('src="/src/main.jsx"');
+  }
+});
+
 test("public privacy policy is readable without login, JavaScript or a backend connection", async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
   const page = await context.newPage();

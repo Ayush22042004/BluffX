@@ -10,6 +10,16 @@ const revision = (
   "local"
 ).slice(0, 40);
 const testProxy = process.env.BLUFFX_TEST_API;
+// Match Vercel's public-policy routes before Vite's SPA fallback. Vite dev
+// otherwise serves the game index for a directory URL, unlike static preview.
+function publicPolicyRoutes(server) {
+  server.middlewares.use((req, _res, next) => {
+    const [pathname, ...query] = (req.url || "").split("?");
+    if (pathname === "/privacy" || pathname === "/privacy/")
+      req.url = "/privacy/index.html" + (query.length ? "?" + query.join("?") : "");
+    next();
+  });
+}
 if (
   testProxy &&
   !["localhost", "127.0.0.1"].includes(new URL(testProxy).hostname)
@@ -18,6 +28,11 @@ if (
 
 export default defineConfig({
   plugins: [
+    {
+      name: "public-policy-routes",
+      configureServer: publicPolicyRoutes,
+      configurePreviewServer: publicPolicyRoutes,
+    },
     {
       name: "public-build-version",
       generateBundle() {
