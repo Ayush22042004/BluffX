@@ -1,5 +1,7 @@
 # BluffX
 
+Public privacy policy: [implementation and verification](docs/versions/v0.3.0-public-privacy.md).
+
 Email troubleshooting: [Gmail authorization diagnostics](docs/versions/v0.3.0-gmail-authorization-check.md).
 
 Maintenance UI: [visitor notice, automatic recovery and verification](docs/versions/v0.3.0-maintenance-ui.md).

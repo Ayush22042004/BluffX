@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BluffX Privacy Policy: account data, Google sign-in, game records, optional voice chat, retention and account deletion.">
+  <title>Privacy Policy | BluffX</title>
+  <link rel="icon" href="/bluffx.ico">
+  <link rel="canonical" href="https://bluffx.vercel.app/privacy">
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#091321;color:#e9f2ff;line-height:1.75}
+    *{box-sizing:border-box}body{margin:0}a{color:#8ddcff;text-underline-offset:4px;overflow-wrap:anywhere}a:focus-visible{outline:3px solid #8ddcff;outline-offset:5px}
+    header,main,footer{width:min(100% - 40px,860px);margin:auto}header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:28px 0;border-bottom:1px solid #2e455d}header a:first-child{font-size:27px;font-weight:900;text-decoration:none;color:#fff}header span{color:#71d0ff}
+    main{padding:42px 0 56px}h1{font-size:clamp(32px,6vw,48px);line-height:1.2;margin:8px 0 14px;letter-spacing:-.03em}h2{font-size:23px;line-height:1.35;margin:36px 0 12px;color:#d2ecff}p,li{color:#bdcde0}li{margin:8px 0}ul{padding-left:24px}.date{font-size:14px;color:#9cb4cd}.intro{font-size:18px}.notice{padding:18px 22px;background:#13283d;border:1px solid #365d7b;border-radius:14px}nav{display:flex;flex-wrap:wrap;gap:10px 22px;margin:26px 0}footer{border-top:1px solid #2e455d;padding:24px 0 40px;font-size:14px}strong{color:#e9f2ff}
+  </style>
+</head>
+<body>
+  <header><a href="/" aria-label="BluffX home">Bluff<span>X</span></a><a href="/">Back to BluffX</a></header>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="date">Effective and last updated: 27 November 2026</p>
+    <p class="intro">BluffX is a real-time multiplayer bluffing card game with accounts, friend parties, optional voice chat and game records. This policy explains how the BluffX team handles information when you use <a href="https://bluffx.vercel.app/">bluffx.vercel.app</a>.</p>
+    <p class="notice">For privacy questions, access or deletion requests, contact <a href="mailto:bluffxteam.noreply@gmail.com">bluffxteam.noreply@gmail.com</a>. You can also use <strong>My Profile → Delete account</strong> in the app.</p>
+    <nav aria-label="Policy sections"><a href="#information">Information collected</a><a href="#google">Google data</a><a href="#sharing">Sharing</a><a href="#retention">Retention</a><a href="#choices">Your choices</a></nav>
+
+    <h2 id="information">1. Information we collect</h2>
+    <ul>
+      <li><strong>Accounts:</strong> your email address, display name, Player Code, chosen or uploaded avatar, verification status and preferences. For email/password accounts, we store a password hash rather than your plain-text password.</li>
+      <li><strong>Google sign-in:</strong> when you choose Google sign-in, we verify Google's identity token and use your Google account identifier, email address, email-verification status, name and available profile picture to identify and maintain your BluffX account.</li>
+      <li><strong>Gameplay:</strong> room and match identifiers, seats, private hands needed to run and recover a match, turns, claims, disconnect and temporary AI status, results, statistics, match history and achievement progress.</li>
+      <li><strong>Social features:</strong> friend requests, friendships, blocks, invitations, discovery settings and party membership. Chat messages you submit are transmitted to the relevant table's participants.</li>
+      <li><strong>Reports and technical information:</strong> your submitted description and category, report reference, build information and bounded connection/error categories. Signed-in reports include your account name, Player Code and contact email. Hosting and security systems can process IP addresses, request metadata and connection information.</li>
+      <li><strong>Browser storage:</strong> session and browser-identification cookies, saved reconnect credentials and local preferences such as theme, voice settings and tutorial choices. These support sign-in, abuse prevention and seat recovery.</li>
+    </ul>
+
+    <h2>2. Why we use information</h2>
+    <p>We use this information to authenticate players, send account verification and recovery emails, run fair server-authoritative games, recover interrupted matches, maintain records, enable requested social features, prevent abuse and duplicate actions, investigate reports and improve reliability. We do not sell personal information or use Google user data for advertising.</p>
+
+    <h2 id="google">3. Google sign-in and Gmail API</h2>
+    <p>Google sign-in is optional; email accounts and guest play are also available. Player Google sign-in does not grant BluffX access to the player's Gmail inbox, contacts, Drive files or ability to send email from the player's mailbox.</p>
+    <p>Separately, the BluffX operator authorizes a dedicated sending mailbox using the Gmail API's send permission. The backend uses that authorization to send verification, password-reset, account-deletion and support/report emails. This sender authorization is not requested from players. Sender OAuth credentials are kept on the backend and are not included in game broadcasts or frontend code.</p>
+    <p>Our use and transfer of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including its Limited Use requirements. Google user data is used for the user-facing functions described here, not for advertising or training generalized artificial-intelligence models.</p>
+
+    <h2>4. Optional voice chat</h2>
+    <p>Voice requires your permission and participation. Audio is transmitted through WebRTC to participants in your selected table or party; a configured relay may carry it when a direct connection is unavailable. BluffX does not record or store voice audio. Direct WebRTC connections can expose network addresses to other participants. You can mute, deafen or leave voice, and revoke microphone permission in your browser. Party voice can continue between games until you leave voice, change channels or disconnect.</p>
+
+    <h2 id="sharing">5. Who receives information</h2>
+    <ul>
+      <li><strong>Other players:</strong> profile and public gameplay information appropriate to the table or social feature, chat messages, and audio when you participate in voice. Leaderboards may display your name, avatar and verified statistics. Social discovery settings and blocks restrict supported social views. Opponents' hidden hands and raw reconnect/session credentials are not included in public room updates.</li>
+      <li><strong>Service providers:</strong> Vercel hosts the frontend; Render runs the backend; Neon PostgreSQL stores application records; Google handles Google sign-in and Gmail email delivery; Cloudflare provides the configured voice relay. They process the information needed to provide those services under their own applicable terms and privacy policies.</li>
+      <li><strong>Support:</strong> submitted player reports can be forwarded to our support mailbox, including the reporter's name, Player Code, contact email and description. Automated browser diagnostics do not themselves send report emails.</li>
+      <li><strong>Security and legal needs:</strong> information may be disclosed when required by applicable law or reasonably necessary to investigate abuse and protect users or the service.</li>
+    </ul>
+    <p>Providers and recipients may process information in countries different from yours. Do not put passwords, access tokens or sensitive personal information in chat or reports.</p>
+
+    <h2 id="retention">6. Storage, security and retention</h2>
+    <p>Account data is retained while the account exists. Server-validated match results and statistics are retained to provide history and consistent records. Private completed-room snapshots, application reports and unclaimed guest avatars become eligible for cleanup after 30 days under the default configuration. Cleanup is activity-driven, so physical deletion can happen later. Account avatars remain until replaced or removed with the account. Invitations expire after ten minutes.</p>
+    <p>Support mailbox copies, provider logs and backups can have separate retention schedules; database report cleanup does not automatically erase a delivered email. Relevant information may be retained longer to resolve abuse, security or legal issues.</p>
+    <p>We use HTTPS, password hashing, server-side authentication and authorization, and private backend credentials. These safeguards reduce risk but do not guarantee absolute security. Private match state is processed by the authoritative server to operate and recover the game.</p>
+
+    <h2 id="choices">7. Access, deletion and your choices</h2>
+    <p>You can update your profile and avatar, adjust supported social-discovery settings, block players and manage microphone permission. To delete an account, open <strong>My Profile → Delete account</strong> and follow the email confirmation. Deletion revokes sessions, removes the account profile and avatar, removes associated social membership, and anonymizes retained match records. Anonymous game outcomes may remain to preserve match integrity. Pending erasure is retried when storage becomes available.</p>
+    <p>If email delivery is unavailable or you need help accessing, correcting or deleting your information, email <a href="mailto:bluffxteam.noreply@gmail.com">bluffxteam.noreply@gmail.com</a>. Include your Player Code or account email, but never your password. We may verify ownership before acting. You can revoke Google sign-in access from your Google Account's connected-app settings; revocation alone does not delete your BluffX account. Depending on your location, additional privacy rights may apply.</p>
+
+    <h2>8. Changes to this policy</h2>
+    <p>We will update this page and its revision date when our practices change. Material changes to data use will be communicated in the app or through an appropriate account notice before they take effect where required.</p>
+    <h2>9. Contact</h2>
+    <p>BluffX team · <a href="mailto:bluffxteam.noreply@gmail.com">bluffxteam.noreply@gmail.com</a> · <a href="https://bluffx.vercel.app/">bluffx.vercel.app</a></p>
+  </main>
+  <footer>BluffX · <a href="/">Return to the game</a></footer>
+</body>
+</html>

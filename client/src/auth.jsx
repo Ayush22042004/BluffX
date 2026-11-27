@@ -654,6 +654,7 @@ function AuthPage({
             <Icon name="lock" size={12} />
             <span>Your cards are secret. Your account stays yours.</span>
           </div>
+          <p style={{ textAlign: "center", fontSize: "13px" }}><a href="/privacy/">Privacy Policy</a></p>
         </section>
       </main>
       <footer>

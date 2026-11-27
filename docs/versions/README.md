@@ -4,6 +4,7 @@ Each update gets its own document in this directory. Record implemented behavior
 
 | Update | Package version | Status | Record |
 | --- | --- | --- | --- |
+| `v0.3.0` public privacy policy | `0.3.0` | Crawler-readable policy, login/in-app links and explicit Vercel routes; Google approval not implied | [Public privacy record](v0.3.0-public-privacy.md) |
 | `v0.3.0` Gmail authorization diagnostics | `0.3.0` | Safe on-demand check implemented; configured local sender currently returns `invalid_grant`; production repair requires new authorization | [Email diagnosis record](v0.3.0-gmail-authorization-check.md) |
 | `v0.3.0` maintenance UI | `0.3.0` | Explicit visitor screen, automatic recovery and database-free checks; production deployment pending | [Maintenance UI record](v0.3.0-maintenance-ui.md) |
 | `v0.3.0` Neon idle efficiency | `0.3.0` | Implemented locally; real Neon suspension verified; manual Render rollout required | [Idle database audit and verification](v0.3.0-neon-idle.md) |

@@ -8,6 +8,7 @@ export function PrivacyInfo() {
   return (
     <>
       <h2>Your privacy</h2>
+      <p><a href="/privacy/">Read the full BluffX Privacy Policy</a>, including Google data use, retention and deletion options.</p>
       <p>Player-submitted reports may be forwarded to the configured support inbox, including your account name, Player Code, contact email and description. Do not include passwords, private cards or access tokens. Automatic browser diagnostics do not generate report emails.</p>
       <p>
         Optional social features store a public player identifier, friend
